@@ -9,6 +9,28 @@ function ensureDirs(dirPath) {
   if (!fs.existsSync(ERROR_DIR)) fs.mkdirSync(ERROR_DIR, { recursive: true });
 }
 
+function writeJsonFromNdjson(outputDir = null) {
+  const dirPath = outputDir
+    ? path.join(process.cwd(), outputDir)
+    : BASE_OUTPUT_DIR;
+
+  ensureDirs(dirPath);
+
+  const ndjsonPath = path.join(dirPath, 'rates.ndjson');
+  if (!fs.existsSync(ndjsonPath)) return;
+
+  const lines = fs.readFileSync(ndjsonPath, 'utf-8').trim().split('\n');
+  const results = lines
+    .filter(line => line.trim())
+    .map(line => JSON.parse(line));
+
+  fs.writeFileSync(
+    path.join(dirPath, 'rates.json'),
+    JSON.stringify(results, null, 2),
+    'utf-8',
+  );
+}
+
 function writeResults(results, outputDir = null) {
   const dirPath = outputDir
     ? path.join(process.cwd(), outputDir)

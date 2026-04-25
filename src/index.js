@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { loadProviderPairs } = require('./csv-parser');
 const { scrape } = require('./scraper');
-const { writeResults, appendResults } = require('./output');
+const { writeResults, writeJsonFromNdjson, appendResults } = require('./output');
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -152,7 +152,7 @@ async function main() {
   if (results.length > 0) {
     // Determine output path based on run type
     if (options.all) {
-      writeResults(results, null);
+      writeJsonFromNdjson(null);
       console.log(`\nOutput:`);
       console.log(`  output/rates.ndjson  (incremental results)`);
       console.log(`  output/rates.json    (final summary)`);

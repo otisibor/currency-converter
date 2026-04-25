@@ -1,9 +1,6 @@
 const { TIMEOUTS, CURRENCY_COUNTRY_MAP } = require('../config');
 const cheerio = require('cheerio');
 
-let currentPage = null;
-let currentSendCurrency = null;
-
 module.exports = {
   name: 'Remitly',
 
@@ -19,12 +16,9 @@ module.exports = {
     const to = receiveCurrency.toLowerCase();
     const converterUrl = `https://www.remitly.com/${countryCode}/en/currency-converter/${from}-to-${to}-rate`;
 
-    // Navigate only once per provider session
-    if (currentPage !== page || sendCurrency !== currentSendCurrency) {
-      await page.goto(converterUrl, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.navigation });
-      currentPage = page;
-      currentSendCurrency = sendCurrency;
-    }
+    // Each pair has its own dedicated URL, so navigate every time
+    await page.goto(converterUrl, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.navigation });
+    await page.waitForTimeout(1000);
 
     const html = await page.content();
     const $ = cheerio.load(html);
