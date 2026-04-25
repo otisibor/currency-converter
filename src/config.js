@@ -29,7 +29,7 @@ const BROWSER_OPTIONS = {
 
 const CONTEXT_OPTIONS = {
   userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-  viewport: { width: 1280, height: 800 },
+  viewport: { width: 800, height: 800 },
   locale: 'en-US',
 };
 

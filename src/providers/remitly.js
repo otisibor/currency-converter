@@ -1,4 +1,5 @@
-const { TIMEOUTS, CURRENCY_COUNTRY_MAP } = require('../config');
+const { TIMEOUTS } = require('../config');
+const cheerio = require('cheerio');
 
 module.exports = {
   name: 'Remitly',
@@ -6,63 +7,63 @@ module.exports = {
   async fetchRate(page, sendCurrency, receiveCurrency, sendAmount) {
     const from = sendCurrency.toLowerCase();
     const to = receiveCurrency.toLowerCase();
-    const fromCountry = CURRENCY_COUNTRY_MAP[sendCurrency];
-    const toCountry = CURRENCY_COUNTRY_MAP[receiveCurrency];
-
-    // Priority 1: Static currency converter page
     const converterUrl = `https://www.remitly.com/us/en/currency-converter/${from}-to-${to}-rate`;
 
-    try {
-      await page.goto(converterUrl, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.navigation });
-      await page.waitForTimeout(3000);
+    await page.goto(converterUrl, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.navigation });
+    await page.waitForTimeout(3000);
 
-      const bodyText = await page.textContent('body');
-      const rate = extractRate(bodyText, sendCurrency, receiveCurrency, sendAmount);
-      if (rate) return rate;
-    } catch {
-      // Fall through to country URL
+    const html = await page.content();
+    const $ = cheerio.load(html);
+
+    // 1. Get rate from "Special rate" div: "1 USD = 62.03 PHP"
+    const specialRate = $('div').filter((_, el) => {
+      const text = $(el).text().trim();
+      return text.includes('Special rate') && text.includes(sendCurrency) && text.includes(receiveCurrency);
+    }).first().text().trim();
+
+    if (specialRate) {
+      const rateMatch = specialRate.match(
+        new RegExp(`1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
+      );
+      if (rateMatch) {
+        const exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
+        if (exchangeRate > 0) {
+          return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
+        }
+      }
     }
 
-    // Priority 2: Country-based pricing page fallback
-    if (fromCountry && toCountry) {
-      const countryUrl = `https://www.remitly.com/${fromCountry.code.toLowerCase()}/en/${toCountry.slug}`;
+    // 2. Get receive amount from "You receive" or "They receive" section
+    const receiveSection = $('div').filter((_, el) => {
+      const text = $(el).text().trim();
+      return text.includes('They receive') || text.includes('You receive');
+    }).first();
 
-      try {
-        await page.goto(countryUrl, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.navigation });
-        await page.waitForTimeout(3000);
+    if (receiveSection.length) {
+      // The total amount follows "They receive" text
+      const text = receiveSection.text();
+      const match = text.match(new RegExp(`([\\d.,]+)\\s*${receiveCurrency}`, 'i'));
+      if (match) {
+        const recvAmt = parseFloat(match[1].replace(/,/g, ''));
+        if (recvAmt > 0) {
+          const exchangeRate = recvAmt / sendAmount;
+          return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
+        }
+      }
+    }
 
-        const bodyText = await page.textContent('body');
-        const rate = extractRate(bodyText, sendCurrency, receiveCurrency, sendAmount);
-        if (rate) return rate;
-      } catch {
-        // Already tried both approaches
+    // 3. Fallback: scan body text with regex
+    const bodyText = $('body').text();
+    const rateMatch = bodyText.match(
+      new RegExp(`1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
+    );
+    if (rateMatch) {
+      const exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
+      if (exchangeRate > 0) {
+        return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
       }
     }
 
     return { exchangeRate: null, receiveAmount: null, fee: null };
   },
 };
-
-function extractRate(bodyText, sendCurrency, receiveCurrency, sendAmount) {
-  const rateMatch = bodyText.match(
-    new RegExp(`1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
-  );
-  if (rateMatch) {
-    const exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
-    if (exchangeRate > 0) {
-      return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
-    }
-  }
-
-  const recvMatch = bodyText.match(
-    new RegExp(`([\\d,.]+)\\s*${receiveCurrency}`, 'i')
-  );
-  if (recvMatch) {
-    const recvAmt = parseFloat(recvMatch[1].replace(/,/g, ''));
-    if (recvAmt > 0 && recvAmt !== sendAmount) {
-      return { exchangeRate: recvAmt / sendAmount, receiveAmount: recvAmt, fee: null };
-    }
-  }
-
-  return null;
-}

@@ -6,6 +6,18 @@
   "scripts": {
     "start": "node src/index.js",
     "scrape": "node src/index.js",
+    "scrape:all": "node src/index.js --all",
+    "scrape:wise": "node src/index.js --provider=Wise",
+    "scrape:remitly": "node src/index.js --provider=Remitly",
+    "scrape:worldremit": "node src/index.js --provider=WorldRemit",
+    "scrape:western-union": "node src/index.js --provider=Western Union",
+    "scrape:xoom": "node src/index.js --provider=Xoom",
+    "scrape:taptap": "node src/index.js --provider=Taptap Send",
+    "scrape:ria": "node src/index.js --provider=Ria",
+    "scrape:panda": "node src/index.js --provider=Panda Remit",
+    "scrape:sendwave": "node src/index.js --provider=Sendwave",
+    "scrape:transfergo": "node src/index.js --provider=TransferGo",
+    "scrape:moneygram": "node src/index.js --provider=MoneyGram",
     "test": "node tests/runner.js",
     "test-provider": "node src/test-provider.js"
   },
