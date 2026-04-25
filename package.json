@@ -6,6 +6,7 @@
   "scripts": {
     "start": "node src/index.js",
     "scrape": "node src/index.js",
+    "test": "node tests/runner.js",
     "test-provider": "node src/test-provider.js"
   },
   "keywords": [],
@@ -13,6 +14,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "cheerio": "^1.2.0",
     "csv-parse": "^6.2.1",
     "playwright": "^1.59.1"
   }

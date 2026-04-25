@@ -6,7 +6,7 @@ this_file: "specifications/01-rates-fetcher/features/00-core-infrastructure/feat
 
 feature: "Core Infrastructure"
 description: "Project setup, configuration, CSV parser, currency mapping, and output formatting"
-status: pending
+status: completed
 priority: high
 created: 2026-04-25
 last_updated: 2026-04-25
@@ -15,10 +15,10 @@ author: "Main Agent"
 depends_on: []
 
 tasks:
-  completed: 0
-  uncompleted: 8
+  completed: 8
+  uncompleted: 0
   total: 8
-  completion_percentage: 0
+  completion_percentage: 100
 ---
 
 # Core Infrastructure

@@ -6,19 +6,15 @@ this_file: "specifications/01-rates-fetcher/features/01-scraper-engine/feature.m
 
 feature: "Scraper Engine"
 description: "Browser lifecycle management, provider interface, orchestration, retry logic, and result collection"
-status: pending
-priority: high
-created: 2026-04-25
-last_updated: 2026-04-25
-author: "Main Agent"
+status: completed
 
 depends_on: ["00-core-infrastructure"]
 
 tasks:
-  completed: 0
-  uncompleted: 10
+  completed: 10
+  uncompleted: 0
   total: 10
-  completion_percentage: 0
+  completion_percentage: 100
 ---
 
 # Scraper Engine

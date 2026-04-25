@@ -9,50 +9,60 @@ module.exports = {
     const fromCountry = CURRENCY_COUNTRY_MAP[sendCurrency];
     const toCountry = CURRENCY_COUNTRY_MAP[receiveCurrency];
 
-    const countryUrl = fromCountry && toCountry
-      ? `https://www.remitly.com/${fromCountry.code.toLowerCase()}/en/${toCountry.slug}`
-      : null;
+    // Priority 1: Static currency converter page
     const converterUrl = `https://www.remitly.com/us/en/currency-converter/${from}-to-${to}-rate`;
 
-    const url = countryUrl || converterUrl;
-
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.navigation });
-    await page.waitForTimeout(3000);
-
-    let bodyText = await page.textContent('body');
-
-    let rateMatch = bodyText.match(
-      new RegExp(`1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
-    );
-
-    if (rateMatch) {
-      const exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
-      return {
-        exchangeRate,
-        receiveAmount: exchangeRate * sendAmount,
-        fee: null,
-      };
-    }
-
-    if (countryUrl) {
+    try {
       await page.goto(converterUrl, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.navigation });
       await page.waitForTimeout(3000);
-      bodyText = await page.textContent('body');
 
-      rateMatch = bodyText.match(
-        new RegExp(`1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
-      );
+      const bodyText = await page.textContent('body');
+      const rate = extractRate(bodyText, sendCurrency, receiveCurrency, sendAmount);
+      if (rate) return rate;
+    } catch {
+      // Fall through to country URL
+    }
 
-      if (rateMatch) {
-        const exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
-        return {
-          exchangeRate,
-          receiveAmount: exchangeRate * sendAmount,
-          fee: null,
-        };
+    // Priority 2: Country-based pricing page fallback
+    if (fromCountry && toCountry) {
+      const countryUrl = `https://www.remitly.com/${fromCountry.code.toLowerCase()}/en/${toCountry.slug}`;
+
+      try {
+        await page.goto(countryUrl, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.navigation });
+        await page.waitForTimeout(3000);
+
+        const bodyText = await page.textContent('body');
+        const rate = extractRate(bodyText, sendCurrency, receiveCurrency, sendAmount);
+        if (rate) return rate;
+      } catch {
+        // Already tried both approaches
       }
     }
 
     return { exchangeRate: null, receiveAmount: null, fee: null };
   },
 };
+
+function extractRate(bodyText, sendCurrency, receiveCurrency, sendAmount) {
+  const rateMatch = bodyText.match(
+    new RegExp(`1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
+  );
+  if (rateMatch) {
+    const exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
+    if (exchangeRate > 0) {
+      return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
+    }
+  }
+
+  const recvMatch = bodyText.match(
+    new RegExp(`([\\d,.]+)\\s*${receiveCurrency}`, 'i')
+  );
+  if (recvMatch) {
+    const recvAmt = parseFloat(recvMatch[1].replace(/,/g, ''));
+    if (recvAmt > 0 && recvAmt !== sendAmount) {
+      return { exchangeRate: recvAmt / sendAmount, receiveAmount: recvAmt, fee: null };
+    }
+  }
+
+  return null;
+}

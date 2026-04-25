@@ -1,6 +1,6 @@
 ---
 description: "Web scraper that fetches exchange rates from 11 remittance providers using Playwright headless Chromium, reading currency pairs from Provider.csv"
-status: "in-progress"
+status: "completed"
 priority: "high"
 created: 2026-04-25
 author: "Main Agent"
@@ -24,10 +24,10 @@ has_fundamentals: false
 builds_on: ""
 related_specs: []
 features:
-  completed: 0
-  uncompleted: 14
+  completed: 14
+  uncompleted: 0
   total: 14
-  completion_percentage: 0
+  completion_percentage: 100
 ---
 
 # Overview
@@ -169,20 +169,20 @@ The implementation is divided into features with clear dependencies. Each featur
 
 | #  | Feature | Description | Dependencies | Status |
 |----|---------|-------------|--------------|--------|
-| 0  | [core-infrastructure](./features/00-core-infrastructure/feature.md) | Project setup, config, CSV parser, output formatting, currency mapping | None | ⬜ Pending |
-| 1  | [scraper-engine](./features/01-scraper-engine/feature.md) | Browser lifecycle, provider interface, orchestration, retry logic, result collection | 0 | ⬜ Pending |
-| 2  | [wise](./features/02-wise/feature.md) | Wise provider scraper (static converter + interactive send-money fallback) | 1 | ⬜ Pending |
-| 3  | [remitly](./features/03-remitly/feature.md) | Remitly provider scraper (country URL + converter fallback) | 1 | ⬜ Pending |
-| 4  | [worldremit](./features/04-worldremit/feature.md) | WorldRemit provider scraper (currency-converter page) | 1 | ⬜ Pending |
-| 5  | [western-union](./features/05-western-union/feature.md) | Western Union provider scraper (currency-converter.html) | 1 | ⬜ Pending |
-| 6  | [xoom](./features/06-xoom/feature.md) | Xoom provider scraper (send-money/transfer with countryCode) | 1 | ⬜ Pending |
-| 7  | [moneygram](./features/07-moneygram/feature.md) | MoneyGram provider scraper (403-protected, Playwright required) | 1 | ⬜ Pending |
-| 8  | [taptap-send](./features/08-taptap-send/feature.md) | Taptap Send provider scraper (homepage calculator) | 1 | ⬜ Pending |
-| 9  | [ria](./features/09-ria/feature.md) | Ria provider scraper (dynamically loaded calculator) | 1 | ⬜ Pending |
-| 10 | [panda-remit](./features/10-panda-remit/feature.md) | Panda Remit provider scraper (URL-parameterized converter) | 1 | ⬜ Pending |
-| 11 | [sendwave](./features/11-sendwave/feature.md) | Sendwave provider scraper (homepage calculator) | 1 | ⬜ Pending |
-| 12 | [transfergo](./features/12-transfergo/feature.md) | TransferGo provider scraper (homepage/converter calculator) | 1 | ⬜ Pending |
-| 13 | [testing](./features/13-testing/feature.md) | Test infrastructure — unit, integration, and provider smoke tests | 0, 1 | ⬜ Pending |
+| 0  | [core-infrastructure](./features/00-core-infrastructure/feature.md) | Project setup, config, CSV parser, output formatting, currency mapping | None | ✅ Complete |
+| 1  | [scraper-engine](./features/01-scraper-engine/feature.md) | Browser lifecycle, provider interface, orchestration, retry logic, result collection | 0 | ✅ Complete |
+| 2  | [wise](./features/02-wise/feature.md) | Wise provider scraper (static converter + interactive send-money fallback) | 1 | ✅ Complete |
+| 3  | [remitly](./features/03-remitly/feature.md) | Remitly provider scraper (country URL + converter fallback) | 1 | ✅ Complete |
+| 4  | [worldremit](./features/04-worldremit/feature.md) | WorldRemit provider scraper (currency-converter page) | 1 | ✅ Complete |
+| 5  | [western-union](./features/05-western-union/feature.md) | Western Union provider scraper (currency-converter.html) | 1 | ✅ Complete |
+| 6  | [xoom](./features/06-xoom/feature.md) | Xoom provider scraper (send-money/transfer with countryCode) | 1 | ✅ Complete |
+| 7  | [moneygram](./features/07-moneygram/feature.md) | MoneyGram provider scraper (403-protected, Playwright required) | 1 | ✅ Complete |
+| 8  | [taptap-send](./features/08-taptap-send/feature.md) | Taptap Send provider scraper (homepage calculator) | 1 | ✅ Complete |
+| 9  | [ria](./features/09-ria/feature.md) | Ria provider scraper (dynamically loaded calculator) | 1 | ✅ Complete |
+| 10 | [panda-remit](./features/10-panda-remit/feature.md) | Panda Remit provider scraper (URL-parameterized converter) | 1 | ✅ Complete |
+| 11 | [sendwave](./features/11-sendwave/feature.md) | Sendwave provider scraper (homepage calculator) | 1 | ✅ Complete |
+| 12 | [transfergo](./features/12-transfergo/feature.md) | TransferGo provider scraper (homepage/converter calculator) | 1 | ✅ Complete |
+| 13 | [testing](./features/13-testing/feature.md) | Test infrastructure — unit, integration, and provider smoke tests | 0, 1 | ✅ Complete |
 
 Status Key: ⬜ Pending | 🔄 In Progress | ✅ Complete
 
