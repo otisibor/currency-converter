@@ -1,72 +1,70 @@
 const { TIMEOUTS } = require('../config');
 const cheerio = require('cheerio');
 
+const SEND_COUNTRY_MAP = {
+  CAD: 'Canada',
+  EUR: 'Germany',
+  GBP: 'United Kingdom',
+  USD: 'United States',
+};
+
+const RECEIVE_COUNTRY_MAP = {
+  GHS: 'Ghana',
+  INR: 'India',
+  KES: 'Kenya',
+  MXN: 'Mexico',
+  NGN: 'Nigeria',
+  PHP: 'Philippines',
+  PKR: 'Pakistan',
+};
+
 module.exports = {
   name: 'Sendwave',
 
   async fetchRate(page, sendCurrency, receiveCurrency, sendAmount) {
+    const sendCountry = SEND_COUNTRY_MAP[sendCurrency];
+    const receiveCountry = RECEIVE_COUNTRY_MAP[receiveCurrency];
+    if (!sendCountry || !receiveCountry) {
+      return { exchangeRate: null, receiveAmount: null, fee: null };
+    }
+
     await page.goto('https://www.sendwave.com/en/', { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.navigation });
+    await page.waitForTimeout(3000);
 
     await dismissCookieBanner(page);
 
-    // Wait for calculator inputs
+    // Wait for calculator inputs to render
     await page.locator('input[type="decimal"]').first().waitFor({ timeout: 5000 });
 
-    // Fill the send amount input
-    await page.evaluate((val) => {
-      const inputs = document.querySelectorAll('input[type="decimal"]');
-      if (inputs[0]) {
-        const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
-        setter.call(inputs[0], val);
-        inputs[0].dispatchEvent(new Event('input', { bubbles: true }));
-        inputs[0].dispatchEvent(new Event('change', { bubbles: true }));
-      }
-    }, String(sendAmount));
+    // Select send currency (opens a MUI Drawer with autocomplete)
+    await selectCountry(page, sendCountry, 'send');
 
-    // Wait for receive amount to populate
-    await page.waitForFunction(() => {
-      const inputs = document.querySelectorAll('input[type="decimal"]');
-      return inputs.length >= 2 && inputs[1].value && parseFloat(inputs[1]) > 0;
-    }, { timeout: 5000 }).catch(() => {});
+    // Select receive currency (opens a MUI Drawer with autocomplete)
+    await selectCountry(page, receiveCountry, 'receive');
 
-    const html = await page.content();
-    const $ = cheerio.load(html);
+    // Wait for rate to update
+    await page.waitForTimeout(2000);
 
-    // 1. Get receive amount from the decimal input (second one)
-    const inputs = await page.evaluate(() => {
-      return Array.from(document.querySelectorAll('input[type="decimal"]')).map(i => i.value);
-    });
+    const bodyText = await page.evaluate(() => document.body.innerText);
+    const rateRegex = new RegExp(`1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i');
+    const rateMatch = bodyText.match(rateRegex);
 
-    if (inputs.length >= 2 && inputs[1] && parseFloat(inputs[1]) > 0) {
-      const recvAmt = parseFloat(inputs[1]);
-      const exchangeRate = recvAmt / sendAmount;
-      if (exchangeRate > 0.001 && exchangeRate < 1000000) {
+    if (rateMatch) {
+      const exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
+      if (exchangeRate > 0) {
         return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
       }
     }
 
-    // 2. Get rate from "Exchange Rate" div: "1 USD = 60.96 PHP"
-    const rateText = $('h6[class*="css-"]').first().text().trim();
-    if (rateText) {
-      const rateMatch = rateText.match(
-        new RegExp(`1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
-      );
-      if (rateMatch) {
-        const exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
-        if (exchangeRate > 0) {
-          return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
-        }
-      }
-    }
+    // Fallback: try to read receive amount from calculator input
+    const inputs = await page.evaluate(() => {
+      return Array.from(document.querySelectorAll('input[type="decimal"]')).map(i => i.value);
+    });
 
-    // 3. Fallback: scan body text with regex
-    const bodyText = $('body').text();
-    const bodyRateMatch = bodyText.match(
-      new RegExp(`1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
-    );
-    if (bodyRateMatch) {
-      const exchangeRate = parseFloat(bodyRateMatch[1].replace(/,/g, ''));
-      if (exchangeRate > 0) {
+    if (inputs.length >= 2 && inputs[1]) {
+      const recvAmt = parseFloat(inputs[1].replace(/,/g, ''));
+      if (recvAmt > 0) {
+        const exchangeRate = recvAmt / sendAmount;
         return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
       }
     }
@@ -75,13 +73,34 @@ module.exports = {
   },
 };
 
+async function selectCountry(page, countryName, side) {
+  const selector = side === 'send'
+    ? '[data-testid="exchange-calculator-send-country-select"]'
+    : '[data-testid="exchange-calculator-receive-country-select"]';
+
+  await page.click(selector);
+  await page.waitForTimeout(500);
+
+  // Type in the autocomplete search input
+  const searchInput = page.locator('input.MuiAutocomplete-input, input[role="combobox"]').last();
+  await searchInput.click();
+  await searchInput.fill(countryName);
+  await page.waitForTimeout(500);
+
+  // Click the matching option
+  const option = page.locator(`li.MuiAutocomplete-option:has-text("${countryName}")`).first();
+  await option.click();
+  await page.waitForTimeout(1000);
+}
+
 async function dismissCookieBanner(page) {
   try {
-    const selectors = ['#onetrust-accept-btn-handler', 'button:has-text("Accept")'];
+    const selectors = ['#onetrust-accept-btn-handler', '.osano-cm-accept-all'];
     for (const sel of selectors) {
       const btn = page.locator(sel).first();
       if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
         await btn.click();
+        await page.waitForTimeout(500);
         break;
       }
     }
