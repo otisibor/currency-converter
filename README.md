@@ -30,47 +30,63 @@ npm run scrape:all
 | `--pair=AUD/GHS` | Filter to a single currency pair |
 | `--headful` | Open a visible browser window (default: headless) |
 
-### Common Commands
+### Running Individual Providers
+
+The easiest way is via npm scripts — each provider has one:
 
 ```bash
-# Scrape all providers (headless)
-npm run scrape:all
-
-# Fast mode: skip Western Union and MoneyGram
-node src/index.js --fast
-
-# Slow mode: Western Union and MoneyGram only
-node src/index.js --slow
-
-# Scrape one provider
-npm run scrape:remitly
-
-# Scrape multiple providers
-node src/index.js --providers=Wise,Remitly,WorldRemit
-
-# Debug a single pair in headful mode
-node src/index.js --provider=Remitly --pair=EUR/GHS --headful
-
-# Scrape a specific pair across all providers
-node src/index.js --all --pair=USD/GHS
+npm run scrape:wise          # Wise (49 pairs)
+npm run scrape:remitly       # Remitly (49 pairs)
+npm run scrape:worldremit    # WorldRemit (42 pairs)
+npm run scrape:western-union # Western Union (49 pairs)
+npm run scrape:xoom          # Xoom (35 pairs)
+npm run scrape:taptap        # Taptap Send (49 pairs)
+npm run scrape:ria           # Ria (42 pairs)
+npm run scrape:panda         # Panda Remit (25 pairs)
+npm run scrape:sendwave      # Sendwave (42 pairs)
+npm run scrape:transfergo    # TransferGo (5 pairs)
+npm run scrape:moneygram     # MoneyGram (49 pairs)
 ```
 
-### NPM Scripts
-
-Each provider has a convenience script in `package.json`:
+Or use the CLI flag directly (provider name is case-insensitive):
 
 ```bash
-npm run scrape:wise          # npm run scrape -- --provider=Wise
-npm run scrape:remitly       # npm run scrape -- --provider=Remitly
-npm run scrape:worldremit
-npm run scrape:western-union
-npm run scrape:xoom
-npm run scrape:taptap
-npm run scrape:ria
-npm run scrape:panda
-npm run scrape:sendwave
-npm run scrape:transfergo
-npm run scrape:moneygram
+node src/index.js --provider=Wise
+node src/index.js --provider=remitly         # case-insensitive
+node src/index.js --provider="Western Union" # spaces need quotes
+node src/index.js --provider="Panda Remit"   # spaces need quotes
+```
+
+Combine with `--headful` to watch the browser and debug:
+
+```bash
+node src/index.js --provider=Remitly --headful
+node src/index.js --provider="WorldRemit" --headful
+```
+
+Filter to a single pair for quick testing:
+
+```bash
+node src/index.js --provider=Remitly --pair=EUR/GHS
+node src/index.js --provider=Wise --pair=USD/NGN --headful
+```
+
+### Running Multiple Providers
+
+```bash
+# Comma-separated (no spaces around commas)
+node src/index.js --providers=Wise,Remitly,WorldRemit
+
+# With spaces in provider names, quote the whole argument
+node src/index.js --providers="Western Union,MoneyGram"
+```
+
+### Running All Providers
+
+```bash
+npm run scrape:all           # all providers
+node src/index.js --fast     # skip Western Union and MoneyGram
+node src/index.js --slow     # only Western Union and MoneyGram
 ```
 
 ## Currency Pairs
@@ -146,7 +162,13 @@ provider,sendCurrency,receiveCurrency,sendAmount,exchangeRate,receiveAmount,fee,
 Remitly,EUR,GHS,1000,12.9864,12986.4,,2026-04-26T...,true,
 ```
 
-**JSON** (`rates.json`) — pretty-printed summary with timestamp and count.
+**JSON** (`rates.json`) — array of result objects, built from the NDJSON file:
+```json
+[
+  {"provider":"Remitly","sendCurrency":"EUR","receiveCurrency":"GHS",...},
+  {"provider":"Remitly","sendCurrency":"EUR","receiveCurrency":"INR",...}
+]
+```
 
 **Log** (`<provider>.log`) — detailed diagnostics including failed attempts, error messages, and pair discovery results. The `error` field in CSV/NDJSON shows `unable to acquire` for failures; see the log file for the actual reason.
 

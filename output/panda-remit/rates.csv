@@ -1,21 +1,26 @@
 provider,sendCurrency,receiveCurrency,sendAmount,exchangeRate,receiveAmount,fee,timestamp,success,error
-Panda Remit,AUD,GHS,1000,,,,2026-04-26T01:10:09.827Z,false,unable to acquire
-Panda Remit,AUD,INR,1000,69.3336,69333.6,,2026-04-26T01:10:11.829Z,true,
-Panda Remit,AUD,MXN,1000,,,,2026-04-26T01:10:16.435Z,false,unable to acquire
-Panda Remit,AUD,PHP,1000,43.9512,43951.2,,2026-04-26T01:10:18.436Z,true,
-Panda Remit,AUD,PKR,1000,198.6035,198603.5,,2026-04-26T01:10:23.588Z,true,
-Panda Remit,CAD,GHS,1000,,,,2026-04-26T01:10:27.568Z,false,unable to acquire
-Panda Remit,CAD,INR,1000,70.1655,70165.5,,2026-04-26T01:10:29.568Z,true,
-Panda Remit,CAD,MXN,1000,12.7414,12741.4,,2026-04-26T01:10:33.539Z,true,
-Panda Remit,CAD,PHP,1000,45.03,45030,,2026-04-26T01:10:38.598Z,true,
-Panda Remit,CAD,PKR,1000,,,,2026-04-26T01:10:42.590Z,false,unable to acquire
-Panda Remit,EUR,GHS,1000,12.6633,12663.3,,2026-04-26T01:10:48.553Z,true,
-Panda Remit,EUR,INR,1000,109.7854,109785.4,,2026-04-26T01:10:52.550Z,true,
-Panda Remit,EUR,MXN,1000,,,,2026-04-26T01:10:56.514Z,false,unable to acquire
-Panda Remit,EUR,PHP,1000,70.611,70611,,2026-04-26T01:10:58.516Z,true,
-Panda Remit,EUR,PKR,1000,,,,2026-04-26T01:11:02.505Z,false,unable to acquire
-Panda Remit,GBP,GHS,1000,14.9762,14976.2,,2026-04-26T01:11:04.506Z,true,
-Panda Remit,GBP,INR,1000,128.0939,128093.9,,2026-04-26T01:11:08.754Z,true,
-Panda Remit,GBP,MXN,1000,,,,2026-04-26T01:11:13.738Z,false,unable to acquire
-Panda Remit,GBP,PHP,1000,81.7581,81758.1,,2026-04-26T01:11:15.739Z,true,
-Panda Remit,GBP,PKR,1000,,,,2026-04-26T01:11:19.730Z,false,unable to acquire
+Panda Remit,AUD,GHS,1000,,,,2026-04-26T01:56:28.364Z,false,unable to acquire
+Panda Remit,AUD,INR,1000,69.3336,69333.6,,2026-04-26T01:56:30.365Z,true,
+Panda Remit,AUD,MXN,1000,,,,2026-04-26T01:56:36.126Z,false,unable to acquire
+Panda Remit,AUD,PHP,1000,43.9512,43951.2,,2026-04-26T01:56:38.127Z,true,
+Panda Remit,AUD,PKR,1000,198.6035,198603.5,,2026-04-26T01:56:43.450Z,true,
+Panda Remit,CAD,GHS,1000,,,,2026-04-26T01:56:47.434Z,false,unable to acquire
+Panda Remit,CAD,INR,1000,70.1655,70165.5,,2026-04-26T01:56:49.435Z,true,
+Panda Remit,CAD,MXN,1000,12.7414,12741.4,,2026-04-26T01:56:53.432Z,true,
+Panda Remit,CAD,PHP,1000,45.03,45030,,2026-04-26T01:56:57.410Z,true,
+Panda Remit,CAD,PKR,1000,,,,2026-04-26T01:57:01.381Z,false,unable to acquire
+Panda Remit,EUR,GHS,1000,12.6633,12663.3,,2026-04-26T01:57:07.342Z,true,
+Panda Remit,EUR,INR,1000,109.7854,109785.4,,2026-04-26T01:57:11.386Z,true,
+Panda Remit,EUR,MXN,1000,,,,2026-04-26T01:57:15.386Z,false,unable to acquire
+Panda Remit,EUR,PHP,1000,70.611,70611,,2026-04-26T01:57:17.386Z,true,
+Panda Remit,EUR,PKR,1000,,,,2026-04-26T01:57:21.383Z,false,unable to acquire
+Panda Remit,GBP,GHS,1000,,,,2026-04-26T01:57:23.384Z,false,unable to acquire
+Panda Remit,GBP,INR,1000,128.0939,128093.9,,2026-04-26T01:58:30.397Z,true,
+Panda Remit,GBP,MXN,1000,,,,2026-04-26T01:58:34.596Z,false,unable to acquire
+Panda Remit,GBP,PHP,1000,81.7581,81758.1,,2026-04-26T01:58:36.597Z,true,
+Panda Remit,GBP,PKR,1000,,,,2026-04-26T01:58:40.584Z,false,unable to acquire
+Panda Remit,USD,GHS,1000,,,,2026-04-26T01:58:46.622Z,false,unable to acquire
+Panda Remit,USD,INR,1000,94.70110000000001,94701.1,,2026-04-26T01:58:48.623Z,true,
+Panda Remit,USD,MXN,1000,17.7699,17769.9,,2026-04-26T01:58:52.778Z,true,
+Panda Remit,USD,PHP,1000,61.4114,61411.4,,2026-04-26T01:58:56.899Z,true,
+Panda Remit,USD,PKR,1000,,,,2026-04-26T01:59:01.172Z,false,unable to acquire
