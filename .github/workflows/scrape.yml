@@ -8,8 +8,22 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    
-    
+    strategy:
+      fail-fast: false   # If one provider fails, others keep running
+      matrix:
+        provider:
+          - Wise
+          - Remitly
+          - WorldRemit
+          - Western Union
+          - Xoom
+          - MoneyGram
+          - Taptap
+          - Ria
+          - Panda
+          - Sendwave
+          - TransferGo
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -26,10 +40,8 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install chromium
 
-      - name: Run scraper
-        run: npm run scrape:all
-        env:
-          NODE_ENV: production
+      - name: Run scraper for ${{ matrix.provider }}
+        run: node src/index.js --provider="${{ matrix.provider }}"
 
       - name: Generate SQL insert file
         run: node scripts/generate-sql.js
@@ -42,6 +54,8 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+    
+  
 
       # Optional: commit output files back to repo as versioned backup
       - name: Commit outputs to repo
