@@ -1,0 +1,8 @@
+name = "currency-api"
+main = "src/index.ts"
+compatibility_date = "2026-04-26"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "currency-rates"
+database_id = "<YOUR_DATABASE_ID>"
