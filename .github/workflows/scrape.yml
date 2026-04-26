@@ -1,0 +1,54 @@
+name: Daily Currency Scrape
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # 06:00 UTC daily (adjust to your timezone)
+  workflow_dispatch:       # Allows manual trigger from GitHub UI
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install chromium
+
+      - name: Run scraper
+        run: npm run scrape:all
+        env:
+          NODE_ENV: production
+
+      - name: Generate SQL insert file
+        run: node scripts/generate-sql.js
+
+      - name: Install Wrangler CLI
+        run: npm install -g wrangler
+
+      - name: Push to Cloudflare D1
+        run: wrangler d1 execute currency-rates --remote --file=./output/insert-rates.sql
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+
+      # Optional: commit output files back to repo as versioned backup
+      - name: Commit outputs to repo
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add output/
+          git diff --quiet && git diff --staged --quiet || git commit -m "chore: daily rates $(date -u +%Y-%m-%d)"
+          git push
