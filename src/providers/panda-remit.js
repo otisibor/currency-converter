@@ -2,13 +2,13 @@ const { TIMEOUTS, CURRENCY_COUNTRY_MAP } = require('../config');
 const cheerio = require('cheerio');
 
 const COUNTRY_MAP = {
-  AUD: { source: 'aus', dest: { CNY: 'china', TWD: 'taiwan', THB: 'thailand', HKD: 'hongkong', JPY: 'japan', INR: 'india', MYR: 'malaysia', PHP: 'philippines', SGD: 'singapore', VND: 'vietnam' } },
-  CAD: { source: 'can', dest: { CNY: 'china', INR: 'india', PHP: 'philippines', SGD: 'singapore', VND: 'vietnam', MYR: 'malaysia' } },
-  EUR: { source: 'fra', dest: { CNY: 'china', PHP: 'philippines', INR: 'india', JPY: 'japan', VND: 'vietnam' } },
-  GBP: { source: 'gbr', dest: { CNY: 'china', PHP: 'philippines', INR: 'india', JPY: 'japan', PKR: 'pakistan' } },
+  AUD: { source: 'aus', dest: { CNY: 'china', TWD: 'taiwan', THB: 'thailand', HKD: 'hongkong', JPY: 'japan', INR: 'india', MYR: 'malaysia', PHP: 'philippines', SGD: 'singapore', VND: 'vietnam', PKR: 'pakistan' } },
+  CAD: { source: 'can', dest: { CNY: 'china', INR: 'india', PHP: 'philippines', SGD: 'singapore', VND: 'vietnam', MYR: 'malaysia', PKR: 'pakistan', MXN: 'mexico' } },
+  EUR: { source: 'fra', dest: { CNY: 'china', PHP: 'philippines', INR: 'india', JPY: 'japan', VND: 'vietnam', GHS: 'ghana' } },
+  GBP: { source: 'gbr', dest: { CNY: 'china', PHP: 'philippines', INR: 'india', JPY: 'japan', PKR: 'pakistan', GHS: 'ghana' } },
   NZD: { source: 'nzl', dest: { CNY: 'china', PHP: 'philippines' } },
   SGD: { source: 'sgp', dest: { CNY: 'china', PHP: 'philippines', INR: 'india' } },
-  USD: { source: 'usa', dest: { CNY: 'china', PHP: 'philippines', TWD: 'taiwan', HKD: 'hongkong', JPY: 'japan', INR: 'india', THB: 'thailand', VND: 'vietnam', SGD: 'singapore', MYR: 'malaysia' } },
+  USD: { source: 'usa', dest: { CNY: 'china', PHP: 'philippines', TWD: 'taiwan', HKD: 'hongkong', JPY: 'japan', INR: 'india', THB: 'thailand', VND: 'vietnam', SGD: 'singapore', MYR: 'malaysia', MXN: 'mexico' } },
 };
 
 module.exports = {
@@ -22,7 +22,8 @@ module.exports = {
 
     const url = `https://www.pandaremit.com/en/${pair.source}/${pair.dest[receiveCurrency]}/${sendCurrency.toLowerCase()}-${receiveCurrency.toLowerCase()}-converter?amount=${sendAmount}`;
 
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.navigation });
+    await page.goto(url, { waitUntil: 'networkidle', timeout: TIMEOUTS.navigation });
+    await page.waitForTimeout(500);
 
     await dismissCookieBanner(page);
 

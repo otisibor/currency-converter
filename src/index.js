@@ -8,6 +8,8 @@ function parseArgs() {
   const args = process.argv.slice(2);
   const options = {
     all: false,
+    fast: false,
+    slow: false,
     providers: [],
     pair: null,
     headless: true,
@@ -15,6 +17,8 @@ function parseArgs() {
 
   for (const arg of args) {
     if (arg === '--all') options.all = true;
+    else if (arg === '--fast') options.fast = true;
+    else if (arg === '--slow') options.slow = true;
     else if (arg.startsWith('--provider=')) options.providers.push(arg.split('=')[1]);
     else if (arg.startsWith('--providers=')) options.providers.push(...arg.split('=').slice(1).join('=').split(','));
     else if (arg.startsWith('--pair=')) options.pair = arg.split('=').slice(1).join('=');
@@ -26,6 +30,24 @@ function parseArgs() {
 
 function filterProviderPairs(allPairs, options) {
   if (options.all) return allPairs;
+
+  if (options.fast) {
+    const SLOW_PROVIDERS = ['Western Union', 'MoneyGram'];
+    const filtered = {};
+    for (const [name, data] of Object.entries(allPairs)) {
+      if (!SLOW_PROVIDERS.includes(name)) filtered[name] = data;
+    }
+    return filtered;
+  }
+
+  if (options.slow) {
+    const SLOW_PROVIDERS = ['Western Union', 'MoneyGram'];
+    const filtered = {};
+    for (const name of SLOW_PROVIDERS) {
+      if (allPairs[name]) filtered[name] = allPairs[name];
+    }
+    return filtered;
+  }
 
   if (options.providers.length > 0) {
     const filtered = {};
@@ -52,7 +74,11 @@ function filterProviderPairs(allPairs, options) {
 }
 
 function isSingleRun(options) {
-  return options.providers.length === 1 && !options.all;
+  return options.providers.length === 1 && !options.all && !options.fast && !options.slow;
+}
+
+function isMultiRootRun(options) {
+  return options.all || options.fast || options.slow;
 }
 
 function getProviderSlug(providerName) {
@@ -72,7 +98,7 @@ async function main() {
 
   // Clean old output files before starting
   const outputDirs = [];
-  if (options.all) {
+  if (isMultiRootRun(options)) {
     outputDirs.push(path.join(process.cwd(), 'output'));
   } else if (isSingleRun(options)) {
     const slug = getProviderSlug(Object.keys(providerPairs)[0]);
@@ -117,7 +143,7 @@ async function main() {
       const newResults = currentResults.slice(totalCount);
       totalCount = currentResults.length;
 
-      if (options.all) {
+      if (isMultiRootRun(options)) {
         appendResults(newResults, null);
         console.log(`[batch] +${newResults.length} results (total ${totalCount}) → output/rates.ndjson, output/rates.csv`);
       } else if (isSingleRun(options)) {
