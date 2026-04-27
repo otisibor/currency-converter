@@ -8,7 +8,7 @@ on:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 360
 
     steps:
       - name: Checkout repo
@@ -29,21 +29,47 @@ jobs:
       - name: Install Wrangler CLI
         run: npm install -g wrangler
 
-      - name: Scrape providers incrementally and push to D1
+      - name: Scrape each provider and checkpoint to D1
+        shell: bash
         run: |
+          set +e  # CRITICAL: keep going when a provider fails
+          
           declare -a providers=("Wise" "Remitly" "WorldRemit" "Western Union" "Xoom" "MoneyGram" "Taptap Send" "Ria" "Panda Remit" "Sendwave" "TransferGo")
           failed=()
           
           for provider in "${providers[@]}"; do
+            echo ""
             echo "::group::▶️ $provider"
             
-            if node src/index.js --provider="$provider"; then
+            # Scrape one provider with a 15-minute safety timeout
+            timeout 900 node src/index.js --provider="$provider"
+            scrape_exit=$?
+            
+            if [ $scrape_exit -eq 0 ]; then
               echo "✅ $provider scraped successfully — pushing to D1"
+              
               node scripts/generate-sql.js "$provider"
-              wrangler d1 execute currency-rates --remote --file=./output/insert-rates.sql
+              sql_exit=$?
+              
+              if [ $sql_exit -eq 0 ] && [ -f "./output/insert-rates.sql" ]; then
+                wrangler d1 execute currency-rates --remote --file=./output/insert-rates.sql
+                d1_exit=$?
+                if [ $d1_exit -ne 0 ]; then
+                  echo "⚠️ D1 push failed for $provider"
+                  failed+=("$provider (D1)")
+                else
+                  echo "✅ $provider saved to D1"
+                fi
+              else
+                echo "⚠️ SQL generation failed for $provider"
+                failed+=("$provider (SQL)")
+              fi
+            elif [ $scrape_exit -eq 124 ]; then
+              echo "⏱️ $provider timed out after 15 minutes"
+              failed+=("$provider (timeout)")
             else
-              echo "❌ $provider failed — continuing to next provider"
-              failed+=("$provider")
+              echo "❌ $provider scraper failed with exit code $scrape_exit"
+              failed+=("$provider (scrape)")
             fi
             
             echo "::endgroup::"
@@ -51,15 +77,12 @@ jobs:
           
           echo ""
           echo "========== SUMMARY =========="
-          echo "Total providers: ${#providers[@]}"
-          echo "Failed: ${#failed[@]}"
+          echo "Total: ${#providers[@]} | Failed: ${#failed[@]}"
           
           if [ ${#failed[@]} -gt 0 ]; then
-            echo "Failed providers: ${failed[*]}"
-            echo "::warning::${#failed[@]} provider(s) failed but successful ones are already in D1"
-            exit 1  # Fail the workflow so GitHub notifies you, but DB already has the good data
-          else
-            echo "All providers succeeded"
+            echo "Failed: ${failed[*]}"
+            echo "::warning::${#failed[@]} provider(s) failed, but successful ones are already in D1"
+            exit 1  # Red badge so GitHub notifies you; DB already contains the good data
           fi
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
