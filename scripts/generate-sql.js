@@ -1,10 +1,24 @@
 const fs = require('fs');
 const path = require('path');
 
-const ratesPath = path.join(process.cwd(), 'output', 'rates.json');
+function getSlug(name) {
+  return name.toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+const providerName = process.argv[2]; // e.g., "Western Union"
+const slug = providerName ? getSlug(providerName) : null;
+
+let ratesPath;
+if (slug) {
+  ratesPath = path.join(process.cwd(), 'output', slug, 'rates.json');
+} else {
+  ratesPath = path.join(process.cwd(), 'output', 'rates.json');
+}
 
 if (!fs.existsSync(ratesPath)) {
-  console.error('❌ output/rates.json not found. Did the scraper run?');
+  console.error(`❌ ${ratesPath} not found. Did the scraper run?`);
   process.exit(1);
 }
 
@@ -35,4 +49,4 @@ VALUES
 const outPath = path.join(process.cwd(), 'output', 'insert-rates.sql');
 fs.writeFileSync(outPath, sql);
 
-console.log(`✅ Generated SQL with ${rates.length} records → ${outPath}`);
+console.log(`✅ Generated SQL with ${rates.length} records from ${ratesPath} → ${outPath}`);
