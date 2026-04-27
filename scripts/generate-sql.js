@@ -20,22 +20,8 @@ const ndjsonPath = path.join(outDir, 'rates.ndjson');
 
 let rates = [];
 
-// PRIMARY: Read from rates.ndjson (line-by-line JSON, most reliable)
-if (fs.existsSync(ndjsonPath)) {
-  try {
-    const content = fs.readFileSync(ndjsonPath, 'utf8').trim();
-    if (content) {
-      const lines = content.split('\n').filter(line => line.trim());
-      rates = lines.map(line => JSON.parse(line));
-      console.log(`📁 Read ${rates.length} records from rates.ndjson`);
-    }
-  } catch (err) {
-    console.error(`⚠️ Failed to parse rates.ndjson: ${err.message}`);
-  }
-}
-
-// FALLBACK: Read from rates.json (object wrapper: { timestamp, count, results })
-if (rates.length === 0 && fs.existsSync(jsonPath)) {
+// PRIMARY: Read from rates.json (contains ALL results, including final partial batch)
+if (fs.existsSync(jsonPath)) {
   try {
     const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
     if (Array.isArray(data) && data.length > 0) {
@@ -52,9 +38,23 @@ if (rates.length === 0 && fs.existsSync(jsonPath)) {
   }
 }
 
+// FALLBACK: Read from rates.ndjson (only batched results, may be incomplete)
+if (rates.length === 0 && fs.existsSync(ndjsonPath)) {
+  try {
+    const content = fs.readFileSync(ndjsonPath, 'utf8').trim();
+    if (content) {
+      const lines = content.split('\n').filter(line => line.trim());
+      rates = lines.map(line => JSON.parse(line));
+      console.log(`📁 Read ${rates.length} records from rates.ndjson (fallback)`);
+    }
+  } catch (err) {
+    console.error(`⚠️ Failed to parse rates.ndjson: ${err.message}`);
+  }
+}
+
 if (rates.length === 0) {
   console.error('❌ No rates to insert.');
-  process.exit(1);  // Exit with error so bash knows SQL generation failed
+  process.exit(1);
 }
 
 const escape = (str) => str ? `'${String(str).replace(/'/g, "''")}'` : 'NULL';
