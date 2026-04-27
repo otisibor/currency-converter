@@ -50,7 +50,9 @@ jobs:
             timeout 900 node src/index.js --provider="$provider"
             
             # Check if the scraper produced a rates.json file
-            if [ -f "$outdir/rates.json" ]; then
+            
+            if [ -f "$outdir/rates.json" ] || [ -f "$outdir/rates.ndjson" ]; then
+            
               echo "✅ $provider finished — generating SQL"
               node scripts/generate-sql.js "$provider"
               
