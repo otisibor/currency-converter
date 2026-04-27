@@ -46,17 +46,27 @@ jobs:
             echo "::group::▶️ $provider"
             echo "Output will be at: $outdir"
             
-            # Run scraper with a 15-minute safety timeout per provider
+            # Run scraper with 15-minute timeout per provider
             timeout 900 node src/index.js --provider="$provider"
+            scrape_exit=$?
             
-            # Check if the scraper produced a rates.json file
+            # Check if ANY output file exists (ndjson is primary, json is fallback)
+            has_output=0
+            if [ -f "$outdir/rates.ndjson" ]; then
+              echo "📄 Found $outdir/rates.ndjson"
+              has_output=1
+            fi
+            if [ -f "$outdir/rates.json" ]; then
+              echo "📄 Found $outdir/rates.json"
+              has_output=1
+            fi
             
-            if [ -f "$outdir/rates.json" ] || [ -f "$outdir/rates.ndjson" ]; then
-            
-              echo "✅ $provider finished — generating SQL"
+            if [ $has_output -eq 1 ]; then
+              echo "✅ $provider produced output — generating SQL"
               node scripts/generate-sql.js "$provider"
+              sql_exit=$?
               
-              if [ -f "./output/insert-rates.sql" ]; then
+              if [ $sql_exit -eq 0 ]; then
                 echo "📤 Pushing $provider to D1..."
                 wrangler d1 execute currency-rates --remote --file=./output/insert-rates.sql
                 d1_exit=$?
@@ -67,11 +77,11 @@ jobs:
                   failed+=("$provider (D1)")
                 fi
               else
-                echo "⚠️ SQL file not generated for $provider"
+                echo "⚠️ SQL generation failed for $provider"
                 failed+=("$provider (SQL)")
               fi
             else
-              echo "❌ $provider failed or timed out — no $outdir/rates.json found"
+              echo "❌ $provider failed — no output files found"
               failed+=("$provider")
             fi
             
