@@ -8,23 +8,48 @@ function getSlug(name) {
 }
 
 const providerName = process.argv[2];
-
 if (!providerName) {
   console.error('Usage: node scripts/generate-sql.js "Provider Name"');
   process.exit(1);
 }
 
 const slug = getSlug(providerName);
-const ratesPath = path.join(process.cwd(), 'output', slug, 'rates.json');
+const outDir = path.join(process.cwd(), 'output', slug);
 
-if (!fs.existsSync(ratesPath)) {
-  console.error(`❌ ${ratesPath} not found. Did the scraper run?`);
-  process.exit(1);
+// Try rates.json first, fallback to rates.ndjson
+const jsonPath = path.join(outDir, 'rates.json');
+const ndjsonPath = path.join(outDir, 'rates.ndjson');
+
+let rates = [];
+
+if (fs.existsSync(jsonPath)) {
+  try {
+    const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
+    if (Array.isArray(data) && data.length > 0) {
+      rates = data;
+      console.log(`📁 Read ${rates.length} records from rates.json`);
+    } else {
+      console.log(`⚠️ rates.json exists but is empty or not an array`);
+    }
+  } catch (err) {
+    console.log(`⚠️ Failed to parse rates.json: ${err.message}`);
+  }
 }
 
-const rates = JSON.parse(fs.readFileSync(ratesPath, 'utf8'));
+// Fallback: read from NDJSON (line-by-line JSON)
+if (rates.length === 0 && fs.existsSync(ndjsonPath)) {
+  try {
+    const lines = fs.readFileSync(ndjsonPath, 'utf8')
+      .split('\n')
+      .filter(line => line.trim());
+    rates = lines.map(line => JSON.parse(line));
+    console.log(`📁 Read ${rates.length} records from rates.ndjson`);
+  } catch (err) {
+    console.log(`⚠️ Failed to parse rates.ndjson: ${err.message}`);
+  }
+}
 
-if (!rates.length) {
+if (rates.length === 0) {
   console.log('ℹ️ No rates to insert.');
   process.exit(0);
 }
@@ -49,4 +74,4 @@ VALUES
 const outPath = path.join(process.cwd(), 'output', 'insert-rates.sql');
 fs.writeFileSync(outPath, sql);
 
-console.log(`✅ Generated SQL with ${rates.length} records from ${ratesPath}`);
+console.log(`✅ Generated SQL with ${rates.length} records → ${outPath}`);
