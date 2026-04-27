@@ -32,44 +32,45 @@ jobs:
       - name: Scrape each provider and checkpoint to D1
         shell: bash
         run: |
-          set +e  # CRITICAL: keep going when a provider fails
+          set +e
+          set +o pipefail
           
-          declare -a providers=("Wise" "Remitly" "WorldRemit" "Western Union" "Xoom" "MoneyGram" "Taptap Send" "Ria" "Panda Remit" "Sendwave" "TransferGo")
+          providers=("Wise" "Remitly" "WorldRemit" "Western Union" "Xoom" "MoneyGram" "Taptap Send" "Ria" "Panda Remit" "Sendwave" "TransferGo")
           failed=()
           
           for provider in "${providers[@]}"; do
+            slug=$(echo "$provider" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/^-//;s/-$//')
+            outdir="output/$slug"
+            
             echo ""
             echo "::group::▶️ $provider"
+            echo "Output will be at: $outdir"
             
-            # Scrape one provider with a 15-minute safety timeout
+            # Run scraper with a 15-minute safety timeout per provider
             timeout 900 node src/index.js --provider="$provider"
-            scrape_exit=$?
             
-            if [ $scrape_exit -eq 0 ]; then
-              echo "✅ $provider scraped successfully — pushing to D1"
-              
+            # Check if the scraper produced a rates.json file
+            if [ -f "$outdir/rates.json" ]; then
+              echo "✅ $provider finished — generating SQL"
               node scripts/generate-sql.js "$provider"
-              sql_exit=$?
               
-              if [ $sql_exit -eq 0 ] && [ -f "./output/insert-rates.sql" ]; then
+              if [ -f "./output/insert-rates.sql" ]; then
+                echo "📤 Pushing $provider to D1..."
                 wrangler d1 execute currency-rates --remote --file=./output/insert-rates.sql
                 d1_exit=$?
-                if [ $d1_exit -ne 0 ]; then
-                  echo "⚠️ D1 push failed for $provider"
-                  failed+=("$provider (D1)")
-                else
+                if [ $d1_exit -eq 0 ]; then
                   echo "✅ $provider saved to D1"
+                else
+                  echo "⚠️ D1 push failed for $provider (exit $d1_exit)"
+                  failed+=("$provider (D1)")
                 fi
               else
-                echo "⚠️ SQL generation failed for $provider"
+                echo "⚠️ SQL file not generated for $provider"
                 failed+=("$provider (SQL)")
               fi
-            elif [ $scrape_exit -eq 124 ]; then
-              echo "⏱️ $provider timed out after 15 minutes"
-              failed+=("$provider (timeout)")
             else
-              echo "❌ $provider scraper failed with exit code $scrape_exit"
-              failed+=("$provider (scrape)")
+              echo "❌ $provider failed or timed out — no $outdir/rates.json found"
+              failed+=("$provider")
             fi
             
             echo "::endgroup::"
@@ -77,12 +78,15 @@ jobs:
           
           echo ""
           echo "========== SUMMARY =========="
-          echo "Total: ${#providers[@]} | Failed: ${#failed[@]}"
+          echo "Providers attempted: ${#providers[@]}"
+          echo "Failed: ${#failed[@]}"
           
           if [ ${#failed[@]} -gt 0 ]; then
             echo "Failed: ${failed[*]}"
             echo "::warning::${#failed[@]} provider(s) failed, but successful ones are already in D1"
-            exit 1  # Red badge so GitHub notifies you; DB already contains the good data
+            exit 1
+          else
+            echo "All providers succeeded"
           fi
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
