@@ -7,46 +7,37 @@ function getSlug(name) {
     .replace(/^-|-$/g, '');
 }
 
-const providerName = process.argv[2]; // e.g., "Western Union"
+const providerName = process.argv[2];
 const slug = providerName ? getSlug(providerName) : null;
-
-let ratesPath;
-if (slug) {
-  ratesPath = path.join(process.cwd(), 'output', slug, 'rates.json');
-} else {
-  ratesPath = path.join(process.cwd(), 'output', 'rates.json');
-}
+const ratesPath = slug
+  ? path.join(process.cwd(), 'output', slug, 'rates.json')
+  : path.join(process.cwd(), 'output', 'rates.json');
 
 if (!fs.existsSync(ratesPath)) {
-  console.error(`❌ ${ratesPath} not found. Did the scraper run?`);
+  console.error(`❌ ${ratesPath} not found`);
   process.exit(1);
 }
 
 const rates = JSON.parse(fs.readFileSync(ratesPath, 'utf8'));
-
 if (!rates.length) {
-  console.log('ℹ️ No rates to insert.');
+  console.log('ℹ️ No rates to insert');
   process.exit(0);
 }
 
 const escape = (str) => str ? `'${String(str).replace(/'/g, "''")}'` : 'NULL';
 
 const values = rates.map(r => {
-  const fee = r.fee !== null && r.fee !== undefined ? r.fee : 'NULL';
-  const rate = r.exchangeRate !== null && r.exchangeRate !== undefined ? r.exchangeRate : 'NULL';
-  const recv = r.receiveAmount !== null && r.receiveAmount !== undefined ? r.receiveAmount : 'NULL';
+  const fee = r.fee != null ? r.fee : 'NULL';
+  const rate = r.exchangeRate != null ? r.exchangeRate : 'NULL';
+  const recv = r.receiveAmount != null ? r.receiveAmount : 'NULL';
   const error = r.error ? escape(r.error) : 'NULL';
-  
   return `(${escape(r.provider)}, ${escape(r.sendCurrency)}, ${escape(r.receiveCurrency)}, ${r.sendAmount}, ${rate}, ${recv}, ${fee}, ${escape(r.timestamp)}, ${r.success ? 1 : 0}, ${error})`;
 });
 
 const sql = `INSERT INTO exchange_rates 
   (provider, send_currency, receive_currency, send_amount, exchange_rate, receive_amount, fee, timestamp, success, error) 
-VALUES 
-  ${values.join(',\n  ')};
-`;
+VALUES ${values.join(',\n  ')};`;
 
 const outPath = path.join(process.cwd(), 'output', 'insert-rates.sql');
 fs.writeFileSync(outPath, sql);
-
-console.log(`✅ Generated SQL with ${rates.length} records from ${ratesPath} → ${outPath}`);
+console.log(`✅ Generated SQL with ${rates.length} records from ${ratesPath}`);
