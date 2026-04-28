@@ -5,8 +5,8 @@ feature_directory: "specifications/01-rates-fetcher/features/09-ria"
 this_file: "specifications/01-rates-fetcher/features/09-ria/feature.md"
 
 feature: "Ria Provider"
-description: "Scraper for Ria (riamoneytransfer.com) — dynamically loaded calculator on homepage"
-status: pending
+description: "Scraper for Ria (riamoneytransfer.com) — dynamically loaded calculator with HTML-first rate extraction"
+status: complete
 priority: high
 created: 2026-04-25
 last_updated: 2026-04-25
@@ -75,13 +75,23 @@ src/providers/ria.js
 - **Module**: `src/providers/ria.js`
 - **Exports**: `{ name: 'Ria', fetchRate(page, sendCurrency, receiveCurrency, sendAmount) }`
 - **Dependencies**: `../config` (TIMEOUTS, CURRENCY_COUNTRY_MAP)
-- **Strategy**: Static page read → interactive calculator (Next.js hydration required)
+- **Strategy**: HTML-first extraction → input value fallback → regex fallback
 
 ### Special Considerations
 
 - Next.js SPA — may require waiting for hydration
 - Calculator loads as skeleton then populates
 - 5s wait recommended for full render
+
+### Rate Extraction Order
+
+1. **HTML parsing**: `$('.result').text()` — reads `<p class="result">` containing `1.00000 USD = 1353.76857 NGN`
+2. **Input value**: `$('#currencyTo').attr('value')` — receive amount field
+3. **Regex fallback**: Tightened pattern on body text matching `1.0+ USD = {rate} CUR`
+
+### Resolved Issues
+
+- **Wrong rate from conversion table match** (2026-04-28): Regex `1[.,]?0+ USD` matched `1,000 USD = 1,578,XXX NGN` lines in the conversion table, returning the receive amount (~17) instead of the per-unit rate (~1,353). Fixed by switching to HTML-first extraction via `$('.result')` selector, with input value and regex as fallbacks.
 
 ### Send Currency Grouping Optimization
 

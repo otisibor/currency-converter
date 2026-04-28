@@ -45,7 +45,7 @@ module.exports = {
     await amountInput.click({ clickCount: 3 });
     await amountInput.fill(String(sendAmount));
 
-    // Wait for rate to appear in body text
+    // Wait for rate to appear
     await page.waitForFunction((cur) => {
       return document.body.innerText.includes(cur);
     }, receiveCurrency, { timeout: 5000 }).catch(() => {});
@@ -54,9 +54,33 @@ module.exports = {
     const html = await page.content();
     const $ = cheerio.load(html);
 
+    // Priority 1: <p class="result"> — "1.00000 USD = 0.85427 EUR"
+    const resultText = $('.result').text().trim();
+    if (resultText) {
+      const m = resultText.match(
+        new RegExp(`[\\d.,]+\\s+${sendCurrency}\\s*=?\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
+      );
+      if (m) {
+        const exchangeRate = parseFloat(m[1].replace(/,/g, ''));
+        if (exchangeRate > 0.001 && exchangeRate < 1000000) {
+          return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
+        }
+      }
+    }
+
+    // Priority 2: #currencyTo input value (receive amount for 1 unit)
+    const receiveVal = $('#currencyTo').attr('value');
+    if (receiveVal) {
+      const rate = parseFloat(receiveVal.replace(/,/g, ''));
+      if (rate > 0.001 && rate < 1000000) {
+        return { exchangeRate: rate, receiveAmount: rate * sendAmount, fee: null };
+      }
+    }
+
+    // Fallback: body text regex
     const bodyText = $('body').text();
     const rateMatch = bodyText.match(
-      new RegExp(`1[.,]?0+\\s+${sendCurrency}\\s*=?\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
+      new RegExp(`1[.,]0+\\s+${sendCurrency}\\s*=?\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
     );
     if (rateMatch) {
       const exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
