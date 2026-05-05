@@ -45,10 +45,15 @@ module.exports = {
     await amountInput.click({ clickCount: 3 });
     await amountInput.fill(String(sendAmount));
 
-    // Wait for rate to appear
+    // Wait for rate display to update
+    // The .result element must show the new receive currency before we read
     await page.waitForFunction((cur) => {
-      return document.body.innerText.includes(cur);
-    }, receiveCurrency, { timeout: 5000 }).catch(() => {});
+      const el = document.querySelector('.result');
+      return el && el.textContent.includes(cur);
+    }, receiveCurrency, { timeout: 10000 }).catch(() => {});
+
+    // Small delay for React to finish rendering the updated rate
+    await page.waitForTimeout(500);
 
     // Extract rate from HTML
     const html = await page.content();

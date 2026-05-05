@@ -1,0 +1,66 @@
+{
+  "timestamp": "2026-04-28T02:01:48.255Z",
+  "count": 5,
+  "results": [
+    {
+      "provider": "TransferGo",
+      "sendCurrency": "EUR",
+      "receiveCurrency": "INR",
+      "sendAmount": 1000,
+      "exchangeRate": 0.1,
+      "receiveAmount": 100,
+      "fee": null,
+      "timestamp": "2026-04-28T01:02:46.303Z",
+      "success": true,
+      "error": null
+    },
+    {
+      "provider": "TransferGo",
+      "sendCurrency": "EUR",
+      "receiveCurrency": "NGN",
+      "sendAmount": 1000,
+      "exchangeRate": 110.45893,
+      "receiveAmount": 110458.93,
+      "fee": null,
+      "timestamp": "2026-04-28T01:02:50.870Z",
+      "success": true,
+      "error": null
+    },
+    {
+      "provider": "TransferGo",
+      "sendCurrency": "GBP",
+      "receiveCurrency": "INR",
+      "sendAmount": 1000,
+      "exchangeRate": 110.45893,
+      "receiveAmount": 110458.93,
+      "fee": null,
+      "timestamp": "2026-04-28T01:03:22.880Z",
+      "success": true,
+      "error": null
+    },
+    {
+      "provider": "TransferGo",
+      "sendCurrency": "GBP",
+      "receiveCurrency": "NGN",
+      "sendAmount": 1000,
+      "exchangeRate": 110.45893,
+      "receiveAmount": 110458.93,
+      "fee": null,
+      "timestamp": "2026-04-28T01:04:24.893Z",
+      "success": true,
+      "error": null
+    },
+    {
+      "provider": "TransferGo",
+      "sendCurrency": "PLN",
+      "receiveCurrency": "NGN",
+      "sendAmount": 1000,
+      "exchangeRate": 110.45893,
+      "receiveAmount": 110458.93,
+      "fee": null,
+      "timestamp": "2026-04-28T01:04:56.903Z",
+      "success": true,
+      "error": null
+    }
+  ]
+}

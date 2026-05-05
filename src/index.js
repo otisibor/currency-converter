@@ -15,12 +15,14 @@ function parseArgs() {
     headless: true,
   };
 
-  for (const arg of args) {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
     if (arg === '--all') options.all = true;
     else if (arg === '--fast') options.fast = true;
     else if (arg === '--slow') options.slow = true;
     else if (arg.startsWith('--provider=')) options.providers.push(arg.split('=')[1]);
     else if (arg.startsWith('--providers=')) options.providers.push(...arg.split('=').slice(1).join('=').split(','));
+    else if (arg === '--providers' && i + 1 < args.length) options.providers.push(...args[++i].split(','));
     else if (arg.startsWith('--pair=')) options.pair = arg.split('=').slice(1).join('=');
     else if (arg === '--headful') options.headless = false;
   }
@@ -52,13 +54,12 @@ function filterProviderPairs(allPairs, options) {
   if (options.providers.length > 0) {
     const filtered = {};
     for (const providerName of options.providers) {
-      // Try exact match first, then case-insensitive, then partial match
+      // Try exact match first, then case-insensitive match
       if (allPairs[providerName]) {
         filtered[providerName] = allPairs[providerName];
       } else {
         const match = Object.keys(allPairs).find(
-          k => k.toLowerCase() === providerName.toLowerCase() ||
-               k.toLowerCase().includes(providerName.toLowerCase())
+          k => k.toLowerCase() === providerName.toLowerCase()
         );
         if (match) {
           filtered[match] = allPairs[match];
