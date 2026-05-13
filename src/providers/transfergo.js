@@ -7,7 +7,6 @@ module.exports = {
   name: 'TransferGo',
 
   async fetchRate(page, sendCurrency, receiveCurrency, sendAmount) {
-    // Navigate only once per provider session
     if (currentPage !== page) {
       const url = 'https://www.transfergo.com/currency-converter';
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.navigation });
@@ -36,6 +35,13 @@ module.exports = {
     }
     await page.keyboard.press('Escape');
 
+    // ✅ CRITICAL FIX: Verify currency selection actually worked
+    const sendLabel = await page.locator('.currency-converter-calculator__currency-button').nth(0).textContent().catch(() => '');
+    const recvLabel = await page.locator('.currency-converter-calculator__currency-button').nth(1).textContent().catch(() => '');
+    if (!sendLabel.includes(sendCurrency) || !recvLabel.includes(receiveCurrency)) {
+      return { exchangeRate: null, receiveAmount: null, fee: null };
+    }
+
     // Fill send amount via JS to trigger React events
     await page.evaluate((val) => {
       const inputs = document.querySelectorAll('input.currency-converter-calculator__currency-amount');
@@ -53,18 +59,22 @@ module.exports = {
       return inputs.length >= 2 && inputs[1].value && parseFloat(inputs[1].value.replace(/[\s,]/g, '')) > 0;
     }, { timeout: 5000 }).catch(() => {});
 
-    // Read live values via JS
+    // ✅ CRITICAL FIX: Filter out fee/placeholder inputs — only take visible, non-zero inputs
     const amounts = await page.evaluate(() => {
-      const inputs = document.querySelectorAll('input.currency-converter-calculator__currency-amount');
-      return Array.from(inputs).map(i => i.value.replace(/[\s,]/g, ''));
+      const inputs = Array.from(document.querySelectorAll('input.currency-converter-calculator__currency-amount'));
+      return inputs
+        .filter(i => i.offsetParent !== null && !i.disabled && !i.placeholder) // visible & enabled & no placeholder
+        .map(i => i.value.replace(/[\s,]/g, ''))
+        .filter(v => v && parseFloat(v) > 0);
     });
 
-    if (amounts.length >= 2 && amounts[0] && amounts[1]) {
+    if (amounts.length >= 2) {
       const sendVal = parseFloat(amounts[0]);
       const recvAmt = parseFloat(amounts[1]);
-      if (recvAmt > 0 && sendVal > 0) {
+      if (recvAmt > 0 && sendVal > 0 && Math.abs(sendVal - sendAmount) < 1) {
         const exchangeRate = recvAmt / sendVal;
-        if (exchangeRate > 0.001 && exchangeRate < 1000000) {
+        // Sanity check: TransferGo rates should be 0.01 – 50,000 for most corridors
+        if (exchangeRate > 0.01 && exchangeRate < 50000) {
           return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
         }
       }
@@ -73,11 +83,11 @@ module.exports = {
     // Fallback: extract rate from page text
     const bodyText = await page.textContent('body');
     const rateMatch = bodyText.match(
-      new RegExp(`1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
+      new RegExp(`1\s+${sendCurrency}\s*=\s*([\d.,]+)\s*${receiveCurrency}`, 'i')
     );
     if (rateMatch) {
       const exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
-      if (exchangeRate > 0) {
+      if (exchangeRate > 0.01 && exchangeRate < 50000) {
         return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
       }
     }
