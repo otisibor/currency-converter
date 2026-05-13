@@ -7,7 +7,6 @@ module.exports = {
   name: 'Taptap Send',
 
   async fetchRate(page, sendCurrency, receiveCurrency, sendAmount) {
-    // Navigate only once per provider session
     if (currentPage !== page) {
       await page.goto('https://www.taptapsend.com/', { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.navigation });
       await dismissCookieBanner(page);
@@ -16,16 +15,30 @@ module.exports = {
       currentOriginCurrency = null;
     }
 
-    // Only change origin currency if different
+    // ── Change origin currency ──
     if (sendCurrency !== currentOriginCurrency) {
       await selectCurrency(page, '#origin-currency', sendCurrency);
+
+      // ✅ CRITICAL FIX: Wait for the calculator to update after currency change
+      await Promise.race([
+        page.waitForResponse(resp => resp.url().includes('/api/rates') && resp.status() === 200, { timeout: 5000 }),
+        page.waitForFunction(() => {
+          const dest = document.getElementById('destination-amount');
+          return dest && dest.value === ''; // calculator resets while loading
+        }, { timeout: 3000 }),
+        page.waitForTimeout(2000) // hard fallback
+      ]);
+
       currentOriginCurrency = sendCurrency;
     }
 
-    // Always change destination currency
+    // ── Change destination currency ──
     await selectCurrency(page, '#destination-currency', receiveCurrency);
 
-    // Fill the send amount
+    // ✅ Wait for destination calculator to update
+    await page.waitForTimeout(1500);
+
+    // ── Fill amount ──
     await page.evaluate((val) => {
       const input = document.getElementById('origin-amount');
       if (input) {
@@ -41,7 +54,7 @@ module.exports = {
       return dest && dest.value && parseFloat(dest.value.replace(/,/g, '')) > 0;
     }, { timeout: 5000 }).catch(() => {});
 
-    // Read live values via JS
+    // Read live values
     const amounts = await page.evaluate(() => {
       const origin = document.getElementById('origin-amount');
       const dest = document.getElementById('destination-amount');
@@ -62,7 +75,7 @@ module.exports = {
     // Fallback: read rate from #fxRateText
     const rateText = await page.locator('#fxRateText').textContent().catch(() => '');
     const rateMatch = rateText.match(
-      new RegExp(`1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
+      new RegExp(`1\s+${sendCurrency}\s*=\s*([\d.,]+)\s*${receiveCurrency}`, 'i')
     );
     if (rateMatch) {
       const exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
