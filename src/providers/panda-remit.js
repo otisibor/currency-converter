@@ -16,6 +16,8 @@ const COUNTRY_MAP = {
       SGD: "singapore",
       VND: "vietnam",
       PKR: "pakistan",
+      GHS: "ghana",
+      MXN: "mexico",
     },
   },
   CAD: {
@@ -29,6 +31,7 @@ const COUNTRY_MAP = {
       MYR: "malaysia",
       PKR: "pakistan",
       MXN: "mexico",
+      GHS: "ghana",
     },
   },
   EUR: {
@@ -40,6 +43,8 @@ const COUNTRY_MAP = {
       JPY: "japan",
       VND: "vietnam",
       GHS: "ghana",
+      MXN: "mexico",
+      PKR: "pakistan",
     },
   },
   GBP: {
@@ -51,6 +56,7 @@ const COUNTRY_MAP = {
       JPY: "japan",
       PKR: "pakistan",
       GHS: "ghana",
+      MXN: "mexico",
     },
   },
   NZD: { source: "nzl", dest: { CNY: "china", PHP: "philippines" } },
@@ -69,6 +75,8 @@ const COUNTRY_MAP = {
       SGD: "singapore",
       MYR: "malaysia",
       MXN: "mexico",
+      GHS: "ghana",
+      PKR: "pakistan",
     },
   },
 };
@@ -79,7 +87,7 @@ module.exports = {
   async fetchRate(page, sendCurrency, receiveCurrency, sendAmount) {
     const pair = COUNTRY_MAP[sendCurrency];
     if (!pair || !pair.dest[receiveCurrency]) {
-      return { exchangeRate: null, receiveAmount: null, fee: null };
+      return { exchangeRate: null, receiveAmount: null, fee: null, error: 'Unsupported corridor' };
     }
 
     const url = `https://www.pandaremit.com/en/${pair.source}/${pair.dest[receiveCurrency]}/${sendCurrency.toLowerCase()}-${receiveCurrency.toLowerCase()}-converter?amount=${sendAmount}`;
@@ -90,6 +98,12 @@ module.exports = {
     await dismissCookieBanner(page);
     await page.waitForTimeout(100);
 
+    // ✅ CRITICAL FIX: Detect "not available" / "unsupported" messages
+    const bodyText = await page.evaluate(() => document.body.innerText);
+    if (/not available|unsupported|not offered|service unavailable|coming soon/i.test(bodyText)) {
+      return { exchangeRate: null, receiveAmount: null, fee: null, error: 'Corridor not offered by Panda Remit' };
+    }
+
     // Wait for the converter result to appear
     await page
       .waitForFunction((cur) => document.body.innerText.includes(cur), receiveCurrency, {
@@ -99,12 +113,12 @@ module.exports = {
 
     const html = await page.content();
     const $ = cheerio.load(html);
-    const bodyText = $("body").text();
+    const bodyTextCheerio = $("body").text();
 
-    // Look for "1,000 USD = 61411.40 PHP" pattern
-    const rateMatch = bodyText.match(
+    // Look for "1,000 USD = 61,411.40 PHP" pattern
+    const rateMatch = bodyTextCheerio.match(
       new RegExp(
-        `${sendAmount.toLocaleString()}\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`,
+        `${sendAmount.toLocaleString()}\s+${sendCurrency}\s*=\s*([\d.,]+)\s*${receiveCurrency}`,
         "i",
       ),
     );
@@ -118,12 +132,12 @@ module.exports = {
       }
     }
 
-    // Fallback: look for "100 USD 61.4114" pattern
-    const fallbackMatch = bodyText.match(
-      new RegExp(`100\\s+${sendCurrency}\\s*([\\d.]+)\\s*${receiveCurrency}`, "i"),
+    // Fallback: look for "100 USD 61.4114" pattern (per 100 units)
+    const fallbackMatch = bodyTextCheerio.match(
+      new RegExp(`100\s+${sendCurrency}\s*([\d.]+)\s*${receiveCurrency}`, "i"),
     );
     if (fallbackMatch) {
-      const exchangeRate = parseFloat(fallbackMatch[1].replace(/,/g, ""));
+      const exchangeRate = parseFloat(fallbackMatch[1].replace(/,/g, "")) / 100; // normalize to per 1 unit
       if (exchangeRate > 0.001 && exchangeRate < 1000000) {
         return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
       }
