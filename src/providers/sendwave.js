@@ -46,7 +46,7 @@ module.exports = {
     await page.waitForTimeout(2000);
 
     const bodyText = await page.evaluate(() => document.body.innerText);
-    const rateRegex = new RegExp(`1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i');
+    const rateRegex = new RegExp(`1\s+${sendCurrency}\s*=\s*([\d.,]+)\s*${receiveCurrency}`, 'i');
     const rateMatch = bodyText.match(rateRegex);
 
     if (rateMatch) {
@@ -79,16 +79,25 @@ async function selectCountry(page, countryName, side) {
     : '[data-testid="exchange-calculator-receive-country-select"]';
 
   await page.click(selector);
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(300);
 
   // Type in the autocomplete search input
   const searchInput = page.locator('input.MuiAutocomplete-input, input[role="combobox"]').last();
   await searchInput.click();
   await searchInput.fill(countryName);
-  await page.waitForTimeout(500);
+
+  // ✅ CRITICAL FIX: Wait for MUI to filter the list before clicking
+  await page.waitForFunction(
+    (name) => {
+      const options = document.querySelectorAll('li.MuiAutocomplete-option');
+      return Array.from(options).some(li => li.textContent.includes(name));
+    },
+    countryName,
+    { timeout: 3000 }
+  ).catch(() => {});
 
   // Click the matching option
-  const option = page.locator(`li.MuiAutocomplete-option:has-text("${countryName}")`).first();
+  const option = page.locator('li.MuiAutocomplete-option').filter({ hasText: countryName }).first();
   await option.click();
   await page.waitForTimeout(1000);
 }
