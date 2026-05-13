@@ -1,79 +1,84 @@
 const { TIMEOUTS, CURRENCY_COUNTRY_MAP, SEND_AMOUNT } = require("../config");
 
-let isRestricted = false;
+// ✅ CRITICAL FIX: Make restriction flag per-instance, not global
+function createMoneyGramScraper() {
+  let isRestricted = false;
 
-module.exports = {
-  name: "MoneyGram",
+  return {
+    name: "MoneyGram",
 
-  async fetchRate(page, sendCurrency, receiveCurrency, sendAmount) {
-    if (isRestricted) {
-      throw new Error("Temporarily restricted — DataDome bot detection");
-    }
+    async fetchRate(page, sendCurrency, receiveCurrency, sendAmount) {
+      if (isRestricted) {
+        throw new Error("Temporarily restricted — DataDome bot detection");
+      }
 
-    const fromCountry = CURRENCY_COUNTRY_MAP[sendCurrency];
-    const toCountry = CURRENCY_COUNTRY_MAP[receiveCurrency];
-    if (!fromCountry || !toCountry) {
-      return { exchangeRate: null, receiveAmount: null, fee: null };
-    }
+      const fromCountry = CURRENCY_COUNTRY_MAP[sendCurrency];
+      const toCountry = CURRENCY_COUNTRY_MAP[receiveCurrency];
+      if (!fromCountry || !toCountry) {
+        return { exchangeRate: null, receiveAmount: null, fee: null };
+      }
 
-    await page.goto(
-      `https://www.moneygram.com/mgo/${fromCountry.code.toLowerCase()}/en/`,
-      { waitUntil: "domcontentloaded", timeout: TIMEOUTS.navigation },
-    );
+      await page.goto(
+        `https://www.moneygram.com/mgo/${fromCountry.code.toLowerCase()}/en/`,
+        { waitUntil: "domcontentloaded", timeout: TIMEOUTS.navigation },
+      );
 
-    // Check for DataDome block early
-    const hasDataDome = page
-      .frames()
-      .some((f) => f.url() && f.url().includes("captcha-delivery.com"));
-    if (hasDataDome) {
-      isRestricted = true;
-      throw new Error("Temporarily restricted — DataDome bot detection");
-    }
-
-    await dismissCookieBanner(page);
-
-    // Select receive country
-    await selectCountry(page, "Country", toCountry.name);
-
-    // Click send money
-    await trySendMoney(page, fromCountry);
-
-    // Check for DataDome after interactions
-    if (
-      page
+      // Check for DataDome block early
+      const hasDataDome = page
         .frames()
-        .some((f) => f.url() && f.url().includes("captcha-delivery.com"))
-    ) {
-      isRestricted = true;
-      throw new Error("Temporarily restricted — DataDome bot detection");
-    }
+        .some((f) => f.url() && f.url().includes("captcha-delivery.com"));
+      if (hasDataDome) {
+        isRestricted = true;
+        throw new Error("Temporarily restricted — DataDome bot detection");
+      }
 
-    // Check for captcha slider
-    const mainSlider = page.locator(".slider").first();
-    if (await mainSlider.isVisible({ timeout: 1000 }).catch(() => false)) {
-      await dragSlider(page, mainSlider);
-    }
+      await dismissCookieBanner(page);
 
-    // Wait for calculator to populate
-    await page
-      .waitForFunction(
-        () => {
-          const inputs = document.querySelectorAll('input[type="text"]');
-          return inputs.length >= 2 && inputs[0].value && inputs[1].value;
-        },
-        { timeout: 5000 },
-      )
-      .catch(() => {});
+      // Select receive country
+      await selectCountry(page, "Country", toCountry.name);
 
-    // Extract rate from calculator inputs
-    return await extractRateFromCalculator(
-      page,
-      sendCurrency,
-      receiveCurrency,
-      sendAmount,
-    );
-  },
-};
+      // Click send money
+      await trySendMoney(page, fromCountry);
+
+      // Check for DataDome after interactions
+      if (
+        page
+          .frames()
+          .some((f) => f.url() && f.url().includes("captcha-delivery.com"))
+      ) {
+        isRestricted = true;
+        throw new Error("Temporarily restricted — DataDome bot detection");
+      }
+
+      // Check for captcha slider
+      const mainSlider = page.locator(".slider").first();
+      if (await mainSlider.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await dragSlider(page, mainSlider);
+      }
+
+      // Wait for calculator to populate
+      await page
+        .waitForFunction(
+          () => {
+            const inputs = document.querySelectorAll('input[type="text"]');
+            return inputs.length >= 2 && inputs[0].value && inputs[1].value;
+          },
+          { timeout: 5000 },
+        )
+        .catch(() => {});
+
+      // Extract rate from calculator inputs
+      return await extractRateFromCalculator(
+        page,
+        sendCurrency,
+        receiveCurrency,
+        sendAmount,
+      );
+    },
+  };
+}
+
+module.exports = createMoneyGramScraper();
 
 async function selectCountry(page, ariaLabel, countryName) {
   const btn = page.locator(`button[aria-label="${ariaLabel}"]`).last();
@@ -186,7 +191,7 @@ async function extractRateFromCalculator(
   const bodyText = await page.evaluate(() => document.body.innerText);
   const rateMatch = bodyText.match(
     new RegExp(
-      `1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`,
+      `1\s+${sendCurrency}\s*=\s*([\d.,]+)\s*${receiveCurrency}`,
       "i",
     ),
   );
