@@ -8,7 +8,6 @@ module.exports = {
   name: 'Ria',
 
   async fetchRate(page, sendCurrency, receiveCurrency, sendAmount) {
-    // Navigate only once per provider session
     if (currentPage !== page) {
       const url = 'https://www.riamoneytransfer.com/en-us/rates-conversion/';
       await page.goto(url, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.navigation });
@@ -18,7 +17,7 @@ module.exports = {
       currentSendCurrency = null;
     }
 
-    // Change receive currency (always needed)
+    // ── Change receive currency ──
     const recvCombobox = page.locator('#currency-selector-currencyTo').first();
     await recvCombobox.waitFor({ timeout: 5000 }).catch(() => {});
     if (await recvCombobox.isVisible({ timeout: 2000 }).catch(() => false)) {
@@ -28,7 +27,7 @@ module.exports = {
       await option.click();
     }
 
-    // Change send currency only if different from current
+    // ── Change send currency ──
     if (sendCurrency !== currentSendCurrency) {
       const sendCombobox = page.locator('#currency-selector-currencyFrom').first();
       if (await sendCombobox.isVisible({ timeout: 2000 }).catch(() => false)) {
@@ -40,57 +39,47 @@ module.exports = {
       currentSendCurrency = sendCurrency;
     }
 
-    // Fill send amount
+    // ── Fill amount ──
     const amountInput = page.locator('#currencyFrom').first();
     await amountInput.click({ clickCount: 3 });
     await amountInput.fill(String(sendAmount));
 
-    // Wait for rate display to update
-    // The .result element must show the new receive currency before we read
-    await page.waitForFunction((cur) => {
-      const el = document.querySelector('.result');
-      return el && el.textContent.includes(cur);
-    }, receiveCurrency, { timeout: 10000 }).catch(() => {});
+    // ✅ CRITICAL FIX: Wait for the SPECIFIC rate text to appear
+    // The .result element must contain a rate expression for OUR pair
+    await page.waitForFunction(
+      (send, recv) => {
+        const el = document.querySelector('.result');
+        if (!el) return false;
+        const text = el.textContent;
+        return new RegExp(`1\s*\.?0*\s*${send}\s*=\s*[\d.,]+\s*${recv}`, 'i').test(text);
+      },
+      [sendCurrency, receiveCurrency],
+      { timeout: 10000 }
+    ).catch(() => {});
 
-    // Small delay for React to finish rendering the updated rate
-    await page.waitForTimeout(500);
+    await page.waitForTimeout(800);
 
-    // Extract rate from HTML
-    const html = await page.content();
-    const $ = cheerio.load(html);
+    // ✅ CRITICAL FIX: Read live DOM via Playwright, NOT cheerio on stale HTML
+    const resultText = await page.locator('.result').textContent();
 
-    // Priority 1: <p class="result"> — "1.00000 USD = 0.85427 EUR"
-    const resultText = $('.result').text().trim();
-    if (resultText) {
-      const m = resultText.match(
-        new RegExp(`[\\d.,]+\\s+${sendCurrency}\\s*=?\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
-      );
-      if (m) {
-        const exchangeRate = parseFloat(m[1].replace(/,/g, ''));
-        if (exchangeRate > 0.001 && exchangeRate < 1000000) {
-          return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
-        }
+    // Extract the rate for OUR specific pair only
+    const m = resultText.match(
+      new RegExp(`[\d.,]+\s+${sendCurrency}\s*=?\s*([\d.,]+)\s*${receiveCurrency}`, 'i')
+    );
+
+    if (m) {
+      const exchangeRate = parseFloat(m[1].replace(/,/g, ''));
+      if (exchangeRate > 0.001 && exchangeRate < 1000000) {
+        return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
       }
     }
 
-    // Priority 2: #currencyTo input value (receive amount for 1 unit)
-    const receiveVal = $('#currencyTo').attr('value');
+    // Fallback: read the #currencyTo input value (live DOM)
+    const receiveVal = await page.locator('#currencyTo').inputValue();
     if (receiveVal) {
       const rate = parseFloat(receiveVal.replace(/,/g, ''));
       if (rate > 0.001 && rate < 1000000) {
         return { exchangeRate: rate, receiveAmount: rate * sendAmount, fee: null };
-      }
-    }
-
-    // Fallback: body text regex
-    const bodyText = $('body').text();
-    const rateMatch = bodyText.match(
-      new RegExp(`1[.,]0+\\s+${sendCurrency}\\s*=?\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
-    );
-    if (rateMatch) {
-      const exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
-      if (exchangeRate > 0.001 && exchangeRate < 1000000) {
-        return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
       }
     }
 
