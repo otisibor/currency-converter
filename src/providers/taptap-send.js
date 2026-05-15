@@ -8,9 +8,12 @@ module.exports = {
 
   async fetchRate(page, sendCurrency, receiveCurrency, sendAmount) {
     if (currentPage !== page) {
-      await page.goto('https://www.taptapsend.com/', { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.navigation });
+      await page.goto('https://www.taptapsend.com/', {
+        waitUntil: 'networkidle',
+        timeout: TIMEOUTS.navigation,
+      });
       await dismissCookieBanner(page);
-      await page.locator('#origin-amount').waitFor({ timeout: 5000 });
+      await page.locator('#origin-amount').waitFor({ timeout: 10000 });
       currentPage = page;
       currentOriginCurrency = null;
     }
@@ -19,23 +22,49 @@ module.exports = {
     if (sendCurrency !== currentOriginCurrency) {
       await selectCurrency(page, '#origin-currency', sendCurrency);
 
-      // ✅ CRITICAL FIX: Generic wait for any network activity OR DOM mutation
-      // The API endpoint name is unknown, so wait for any XHR/fetch to settle
-      await Promise.race([
-        page.waitForResponse(() => true, { timeout: 4000 }),
-        page.waitForFunction(() => {
-          const dest = document.getElementById('destination-amount');
-          return dest && dest.value === '';
-        }, { timeout: 2000 }),
-        page.waitForTimeout(2500)
-      ]);
+      // ── CRITICAL FIX: Wait for rate API response using generic approach ──
+      // The API endpoint name varies, so we wait for ANY network response
+      // that happens after currency change, OR a DOM mutation
+      try {
+        await Promise.race([
+          page.waitForResponse(() => true, { timeout: 5000 }),
+          page.waitForFunction(
+            () => {
+              const dest = document.getElementById('destination-amount');
+              // Destination cleared or updated means a new rate is being fetched
+              return dest && (dest.value === '' || dest.dataset.updating);
+            },
+            { timeout: 3000 }
+          ),
+        ]);
+      } catch {}
 
+      // Always wait a bit for the async rate calculation to complete
+      await page.waitForFunction(
+        () => {
+          const dest = document.getElementById('destination-amount');
+          return dest && dest.value && parseFloat(dest.value.replace(/,/g, '')) > 0;
+        },
+        { timeout: 6000 }
+      ).catch(() => {});
+
+      // Extra safety wait
+      await page.waitForTimeout(1000);
       currentOriginCurrency = sendCurrency;
     }
 
     // ── Change destination currency ──
     await selectCurrency(page, '#destination-currency', receiveCurrency);
-    await page.waitForTimeout(1500);
+
+    // Wait for destination to update after currency change
+    try {
+      await Promise.race([
+        page.waitForResponse(() => true, { timeout: 5000 }),
+        page.waitForTimeout(2000),
+      ]);
+    } catch {}
+
+    await page.waitForTimeout(1000);
 
     // ── Fill amount ──
     await page.evaluate((val) => {
@@ -47,37 +76,60 @@ module.exports = {
       }
     }, String(sendAmount));
 
-    // Wait for destination amount to populate
-    await page.waitForFunction(() => {
-      const dest = document.getElementById('destination-amount');
-      return dest && dest.value && parseFloat(dest.value.replace(/,/g, '')) > 0;
-    }, { timeout: 5000 }).catch(() => {});
+    // Wait for destination amount to update
+    await page.waitForFunction(
+      () => {
+        const dest = document.getElementById('destination-amount');
+        return dest && dest.value && parseFloat(dest.value.replace(/,/g, '')) > 0;
+      },
+      { timeout: 8000 }
+    ).catch(() => {});
 
-    // Read live values
+    // Extra safety wait for React to settle
+    await page.waitForTimeout(1500);
+
+    // Read live values from DOM
     const amounts = await page.evaluate(() => {
       const origin = document.getElementById('origin-amount');
       const dest = document.getElementById('destination-amount');
       return {
-        origin: origin?.value,
-        dest: dest?.value,
+        origin: origin?.value ? parseFloat(origin.value.replace(/,/g, '')) : null,
+        dest: dest?.value ? parseFloat(dest.value.replace(/,/g, '')) : null,
+        originRaw: origin?.value,
+        destRaw: dest?.value,
       };
     });
 
-    if (amounts.dest && parseFloat(amounts.dest) > 0) {
-      const recvAmt = parseFloat(amounts.dest.replace(/,/g, ''));
-      const exchangeRate = recvAmt / sendAmount;
-      if (exchangeRate > 0.001 && exchangeRate < 1000000) {
+    // Validate: the origin field must show our entered amount (not stale value)
+    if (amounts.dest && amounts.dest > 0 && amounts.origin && amounts.origin > 0) {
+      // Verify the origin field actually contains our sendAmount (within tolerance)
+      if (Math.abs(amounts.origin - sendAmount) < 1) {
+        const exchangeRate = amounts.dest / amounts.origin;
+        if (exchangeRate > 0.001 && exchangeRate < 1000000) {
+          return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
+        }
+      }
+    }
+
+    // Fallback: read rate from #fxRateText (e.g. "Today's rate: USD 1 = 17.100 MXN")
+    const rateText = await page.locator('#fxRateText').textContent().catch(() => '');
+    const rateMatch = rateText.match(
+      new RegExp(`1\\s*${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
+    );
+    if (rateMatch) {
+      const exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
+      if (exchangeRate > 0) {
         return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
       }
     }
 
-    // Fallback: read rate from #fxRateText
-    const rateText = await page.locator('#fxRateText').textContent().catch(() => '');
-    const rateMatch = rateText.match(
-      new RegExp(`1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
+    // Fallback 2: extract from body text
+    const bodyText = await page.evaluate(() => document.body.innerText);
+    const bodyMatch = bodyText.match(
+      new RegExp(`1\\s*${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
     );
-    if (rateMatch) {
-      const exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
+    if (bodyMatch) {
+      const exchangeRate = parseFloat(bodyMatch[1].replace(/,/g, ''));
       if (exchangeRate > 0) {
         return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
       }
@@ -92,7 +144,7 @@ async function dismissCookieBanner(page) {
     const selectors = ['#onetrust-accept-btn-handler', 'button:has-text("Accept")'];
     for (const sel of selectors) {
       const btn = page.locator(sel).first();
-      if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
+      if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
         await btn.click();
         break;
       }
@@ -102,17 +154,21 @@ async function dismissCookieBanner(page) {
 
 async function selectCurrency(page, selectId, currencyCode) {
   try {
-    const optionValue = await page.evaluate(({ id, code }) => {
-      const sel = document.querySelector(id);
-      if (!sel) return null;
-      const opts = Array.from(sel.options);
-      for (let i = 0; i < opts.length; i++) {
-        if (opts[i].text.includes(code)) {
-          return opts[i].value;
+    const optionValue = await page.evaluate(
+      ({ id, code }) => {
+        const sel = document.querySelector(id);
+        if (!sel) return null;
+        const opts = Array.from(sel.options);
+        for (let i = 0; i < opts.length; i++) {
+          // Match by currency code in parentheses, e.g. "France (EUR)"
+          if (opts[i].text.includes(`(${code})`) || opts[i].value.toUpperCase() === code) {
+            return opts[i].value;
+          }
         }
-      }
-      return null;
-    }, { id: selectId, code: currencyCode });
+        return null;
+      },
+      { id: selectId, code: currencyCode }
+    );
 
     if (optionValue !== null) {
       await page.selectOption(selectId, optionValue);
