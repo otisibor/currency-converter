@@ -1,85 +1,91 @@
-const { TIMEOUTS, CURRENCY_COUNTRY_MAP } = require('../config');
-const cheerio = require('cheerio');
-
-let currentPage = null;
-let currentSendCurrency = null;
+const { TIMEOUTS } = require('../config');
 
 module.exports = {
   name: 'Ria',
 
   async fetchRate(page, sendCurrency, receiveCurrency, sendAmount) {
-    if (currentPage !== page) {
-      const url = 'https://www.riamoneytransfer.com/en-us/rates-conversion/';
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.navigation });
-      await dismissCookieBanner(page);
-      await page.locator('#currencyFrom').waitFor({ timeout: 5000 });
-      currentPage = page;
-      currentSendCurrency = null;
-    }
+    // Ria supports URL parameters directly - much more reliable than dropdown interaction
+    const url = `https://www.riamoneytransfer.com/en-us/rates-conversion/?From=${sendCurrency}&To=${receiveCurrency}&Amount=${sendAmount}`;
 
-    // ── Change receive currency ──
-    const recvCombobox = page.locator('#currency-selector-currencyTo').first();
-    await recvCombobox.waitFor({ timeout: 5000 }).catch(() => {});
-    if (await recvCombobox.isVisible({ timeout: 2000 }).catch(() => false)) {
-      await recvCombobox.click();
-      const option = page.locator('[role="option"]').filter({ hasText: receiveCurrency }).first();
-      await option.waitFor({ timeout: 5000 });
-      await option.click();
-    }
+    await page.goto(url, { waitUntil: 'networkidle', timeout: TIMEOUTS.navigation });
+    await dismissCookieBanner(page);
 
-    // ── Change send currency ──
-    if (sendCurrency !== currentSendCurrency) {
-      const sendCombobox = page.locator('#currency-selector-currencyFrom').first();
-      if (await sendCombobox.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await sendCombobox.click();
-        const option = page.locator('[role="option"]').filter({ hasText: sendCurrency }).first();
-        await option.waitFor({ timeout: 5000 });
-        await option.click();
-      }
-      currentSendCurrency = sendCurrency;
-    }
-
-    // ── Fill amount ──
-    const amountInput = page.locator('#currencyFrom').first();
-    await amountInput.click({ clickCount: 3 });
-    await amountInput.fill(String(sendAmount));
-
-    // ✅ CRITICAL FIX: Wait for the SPECIFIC rate text to appear
-    // The .result element must contain a rate expression for OUR pair
+    // Wait for the conversion result to render
     await page.waitForFunction(
-      (send, recv) => {
-        const el = document.querySelector('.result');
-        if (!el) return false;
-        const text = el.textContent;
-        return new RegExp(`1\s*\.?0*\s*${send}\s*=\s*[\d.,]+\s*${recv}`, 'i').test(text);
+      (sc, rc) => {
+        const text = document.body.innerText;
+        return text.includes(sc) && text.includes(rc) && /\d/.test(text);
       },
       [sendCurrency, receiveCurrency],
       { timeout: 10000 }
     ).catch(() => {});
 
-    await page.waitForTimeout(800);
+    await page.waitForTimeout(500);
 
-    // ✅ CRITICAL FIX: Read live DOM via Playwright, NOT cheerio on stale HTML
-    const resultText = await page.locator('.result').textContent();
+    const bodyText = await page.evaluate(() => document.body.innerText);
 
-    // Extract the rate for OUR specific pair only
-    const m = resultText.match(
-      new RegExp(`[\d.,]+\s+${sendCurrency}\s*=?\s*([\d.,]+)\s*${receiveCurrency}`, 'i')
+    // Check for unsupported corridor
+    if (/not available|not supported|invalid currency/i.test(bodyText)) {
+      return { exchangeRate: null, receiveAmount: null, fee: null };
+    }
+
+    // ── PRIMARY: Extract from "1.00000 USD = 11.32661 GHS" pattern ──
+    // This is the main rate display on the page
+    const rateMatch = bodyText.match(
+      new RegExp(`[\d.]+\\s*${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
     );
 
-    if (m) {
-      const exchangeRate = parseFloat(m[1].replace(/,/g, ''));
+    if (rateMatch) {
+      const exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
       if (exchangeRate > 0.001 && exchangeRate < 1000000) {
-        return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
+        // The match gives us the rate for 1 unit of send currency
+        // Verify: for USD→GHS it should be ~11-15, not 11,000
+        if (exchangeRate < 50000) {
+          return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
+        }
       }
     }
 
-    // Fallback: read the #currencyTo input value (live DOM)
-    const receiveVal = await page.locator('#currencyTo').inputValue();
-    if (receiveVal) {
-      const rate = parseFloat(receiveVal.replace(/,/g, ''));
-      if (rate > 0.001 && rate < 1000000) {
-        return { exchangeRate: rate, receiveAmount: rate * sendAmount, fee: null };
+    // ── SECONDARY: Extract from "1000 USD = 11,326.61374 GHS" in conversion table ──
+    const bulkMatch = bodyText.match(
+      new RegExp(
+        `${sendAmount.toLocaleString()}\\s*${sendCurrency}\\s*([\\d.,]+)\\s*${receiveCurrency}`,
+        'i'
+      )
+    );
+    if (bulkMatch) {
+      const recvAmt = parseFloat(bulkMatch[1].replace(/,/g, ''));
+      if (recvAmt > 0) {
+        const exchangeRate = recvAmt / sendAmount;
+        if (exchangeRate > 0.001 && exchangeRate < 50000) {
+          return { exchangeRate, receiveAmount: recvAmt, fee: null };
+        }
+      }
+    }
+
+    // ── TERTIARY: Read from #currencyTo input (the "Converted to" field) ──
+    const currencyToVal = await page.locator('#currencyTo').inputValue().catch(() => null);
+    if (currencyToVal) {
+      const val = parseFloat(currencyToVal.replace(/,/g, ''));
+      // This input shows the total receive amount for the entered send amount
+      if (val > 0 && val < 10000000) {
+        // Sanity: this should be the total receive amount, not a per-unit rate
+        const exchangeRate = val / sendAmount;
+        if (exchangeRate > 0.001 && exchangeRate < 50000) {
+          return { exchangeRate, receiveAmount: val, fee: null };
+        }
+      }
+    }
+
+    // ── QUATERNARY: Extract from conversion table row ──
+    // Look for "1 USD / 11.32661 GHS" in the table
+    const tableMatch = bodyText.match(
+      new RegExp(`1\\s*${sendCurrency}[/=\\s]+([\\d.,]+)\\s*${receiveCurrency}`, 'i')
+    );
+    if (tableMatch) {
+      const exchangeRate = parseFloat(tableMatch[1].replace(/,/g, ''));
+      if (exchangeRate > 0.001 && exchangeRate < 50000) {
+        return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
       }
     }
 
@@ -89,13 +95,10 @@ module.exports = {
 
 async function dismissCookieBanner(page) {
   try {
-    const selectors = [
-      '#onetrust-accept-btn-handler',
-      'button:has-text("Accept")',
-    ];
+    const selectors = ['#onetrust-accept-btn-handler', 'button:has-text("Accept")'];
     for (const sel of selectors) {
       const btn = page.locator(sel).first();
-      if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
+      if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
         await btn.click();
         break;
       }
