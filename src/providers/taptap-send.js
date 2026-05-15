@@ -19,14 +19,15 @@ module.exports = {
     if (sendCurrency !== currentOriginCurrency) {
       await selectCurrency(page, '#origin-currency', sendCurrency);
 
-      // ✅ CRITICAL FIX: Wait for the calculator to update after currency change
+      // ✅ CRITICAL FIX: Generic wait for any network activity OR DOM mutation
+      // The API endpoint name is unknown, so wait for any XHR/fetch to settle
       await Promise.race([
-        page.waitForResponse(resp => resp.url().includes('/api/rates') && resp.status() === 200, { timeout: 5000 }),
+        page.waitForResponse(() => true, { timeout: 4000 }),
         page.waitForFunction(() => {
           const dest = document.getElementById('destination-amount');
-          return dest && dest.value === ''; // calculator resets while loading
-        }, { timeout: 3000 }),
-        page.waitForTimeout(2000) // hard fallback
+          return dest && dest.value === '';
+        }, { timeout: 2000 }),
+        page.waitForTimeout(2500)
       ]);
 
       currentOriginCurrency = sendCurrency;
@@ -34,8 +35,6 @@ module.exports = {
 
     // ── Change destination currency ──
     await selectCurrency(page, '#destination-currency', receiveCurrency);
-
-    // ✅ Wait for destination calculator to update
     await page.waitForTimeout(1500);
 
     // ── Fill amount ──
@@ -75,7 +74,7 @@ module.exports = {
     // Fallback: read rate from #fxRateText
     const rateText = await page.locator('#fxRateText').textContent().catch(() => '');
     const rateMatch = rateText.match(
-      new RegExp(`1\s+${sendCurrency}\s*=\s*([\d.,]+)\s*${receiveCurrency}`, 'i')
+      new RegExp(`1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
     );
     if (rateMatch) {
       const exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
