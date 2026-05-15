@@ -1,5 +1,4 @@
 const { TIMEOUTS } = require('../config');
-const cheerio = require('cheerio');
 
 const SEND_COUNTRY_MAP = {
   CAD: 'Canada',
@@ -42,29 +41,51 @@ module.exports = {
     // Select receive currency (opens a MUI Drawer with autocomplete)
     await selectCountry(page, receiveCountry, 'receive');
 
-    // Wait for rate to update
-    await page.waitForTimeout(2000);
+    // ✅ CRITICAL FIX: Fill amount and WAIT for calculator to update
+    // Sendwave defaults to 100. We need to set to 1000 and wait for React.
+    const sendInput = page.locator('input[type="decimal"]').first();
+    await sendInput.click({ clickCount: 3 });
+    await sendInput.fill(String(sendAmount));
 
-    const bodyText = await page.evaluate(() => document.body.innerText);
-    const rateRegex = new RegExp(`1\s+${sendCurrency}\s*=\s*([\d.,]+)\s*${receiveCurrency}`, 'i');
-    const rateMatch = bodyText.match(rateRegex);
+    // Wait for receive amount to update (not just appear, but update to the new value)
+    await page.waitForFunction(
+      (expectedAmt) => {
+        const inputs = Array.from(document.querySelectorAll('input[type="decimal"]'));
+        if (inputs.length < 2) return false;
+        const sendVal = parseFloat(inputs[0].value.replace(/,/g, ''));
+        const recvVal = parseFloat(inputs[1].value.replace(/,/g, ''));
+        // Must match our send amount AND have a reasonable receive value
+        return Math.abs(sendVal - expectedAmt) < 1 && recvVal > 0;
+      },
+      sendAmount,
+      { timeout: 5000 }
+    ).catch(() => {});
 
-    if (rateMatch) {
-      const exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
-      if (exchangeRate > 0) {
-        return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
-      }
-    }
-
-    // Fallback: try to read receive amount from calculator input
+    // Read values
     const inputs = await page.evaluate(() => {
       return Array.from(document.querySelectorAll('input[type="decimal"]')).map(i => i.value);
     });
 
     if (inputs.length >= 2 && inputs[1]) {
+      const sendVal = parseFloat(inputs[0].replace(/,/g, ''));
       const recvAmt = parseFloat(inputs[1].replace(/,/g, ''));
-      if (recvAmt > 0) {
-        const exchangeRate = recvAmt / sendAmount;
+      if (recvAmt > 0 && sendVal > 0) {
+        const exchangeRate = recvAmt / sendVal; // Use ACTUAL send value read from DOM, not parameter
+        // Detect the 1/10th bug: if rate is < 10% of a reasonable floor, likely stale
+        if (exchangeRate > 0.01) {
+          return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
+        }
+      }
+    }
+
+    // Fallback: try to read rate from page text
+    const bodyText = await page.evaluate(() => document.body.innerText);
+    const rateRegex = new RegExp(`1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i');
+    const rateMatch = bodyText.match(rateRegex);
+
+    if (rateMatch) {
+      const exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
+      if (exchangeRate > 0) {
         return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
       }
     }
@@ -86,7 +107,7 @@ async function selectCountry(page, countryName, side) {
   await searchInput.click();
   await searchInput.fill(countryName);
 
-  // ✅ CRITICAL FIX: Wait for MUI to filter the list before clicking
+  // Wait for MUI to filter the list before clicking
   await page.waitForFunction(
     (name) => {
       const options = document.querySelectorAll('li.MuiAutocomplete-option');
