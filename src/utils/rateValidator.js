@@ -1,57 +1,133 @@
-// src/utils/rateValidator.js
-// Validates scraped rates against historical medians to catch anomalies before DB write
+/**
+ * rateValidator.js — Rejects exchange-rate outliers before database write.
+ *
+ * Usage:
+ *   const { isOutlier } = require('./utils/rateValidator');
+ *   if (isOutlier('Wise', 'USD', 'NGN', 1363)) {
+ *     // Reject — rate is > 200% of historical median
+ *   }
+ *
+ * The validator maintains a rolling window of historical medians per provider+corridor.
+ * On first run (no history), it accepts the rate and seeds the window.
+ */
 
-const HISTORICAL_MEDIANS = {
-  // Based on clean data from Apr 27-29, 2026
-  'AED-GHS': 3.03,   'AED-INR': 25.81,  'AED-KES': 35.16,  'AED-MXN': 4.74,
-  'AED-NGN': 371,    'AED-PHP': 16.69,  'AED-PKR': 76.04,
-  'AUD-GHS': 7.97,   'AUD-INR': 67.86,  'AUD-KES': 92.77,  'AUD-MXN': 12.50,
-  'AUD-NGN': 979,    'AUD-PHP': 44.00,  'AUD-PKR': 200.5,
-  'CAD-GHS': 8.14,   'CAD-INR': 69.29,  'CAD-KES': 94.65,  'CAD-MXN': 12.76,
-  'CAD-NGN': 1000,   'CAD-PHP': 45.06,  'CAD-PKR': 204.8,
-  'EUR-GHS': 13.00,  'EUR-INR': 110.4,  'EUR-KES': 151.1,  'EUR-MXN': 20.37,
-  'EUR-NGN': 1600,   'EUR-PHP': 71.21,  'EUR-PKR': 327.2,
-  'GBP-GHS': 15.01,  'GBP-INR': 127.4,  'GBP-KES': 174.8,  'GBP-MXN': 23.52,
-  'GBP-NGN': 1843,   'GBP-PHP': 82.22,  'GBP-PKR': 377.8,
-  'PLN-GHS': 3.06,   'PLN-INR': 26.06,  'PLN-KES': 35.60,  'PLN-MXN': 4.80,
-  'PLN-NGN': 376,    'PLN-PHP': 16.90,  'PLN-PKR': 77.01,
-  'USD-GHS': 11.10,  'USD-INR': 94.51,  'USD-KES': 129.1,  'USD-MXN': 17.41,
-  'USD-NGN': 1363,   'USD-PHP': 61.29,  'USD-PKR': 279.3,
-};
+const fs = require('fs');
+const path = require('path');
 
-const DEFAULT_TOLERANCE = 2.0; // 200% deviation threshold
+const HISTORY_FILE = path.join(__dirname, '..', 'data', 'rate-history.json');
+const WINDOW_SIZE = 20; // Keep last N rates per corridor
+const DEVIATION_THRESHOLD = 2.0; // Reject if > 200% of median
+const MIN_RATES_FOR_VALIDATION = 3; // Need at least 3 historical points
 
-function validateRate(rate, sendCurrency, receiveCurrency, tolerance = DEFAULT_TOLERANCE) {
-  const key = `${sendCurrency}-${receiveCurrency}`;
-  const median = HISTORICAL_MEDIANS[key];
+let history = {};
 
-  if (!median) {
-    // No baseline yet — only check for absurd bounds
-    if (rate > 50000 || rate < 0.001) {
-      return {
-        valid: false,
-        reason: `Rate ${rate} outside sane bounds (no historical median for ${key})`,
-        median: null,
-      };
-    }
-    return { valid: true, median: null };
+// Load historical data if available
+try {
+  if (fs.existsSync(HISTORY_FILE)) {
+    history = JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf8'));
+  }
+} catch (err) {
+  console.warn('Rate history file could not be loaded:', err.message);
+}
+
+function getKey(provider, sendCurrency, receiveCurrency) {
+  return `${provider}|${sendCurrency}|${receiveCurrency}`;
+}
+
+function calculateMedian(values) {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    return (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+  return sorted[mid];
+}
+
+function saveHistory() {
+  try {
+    const dir = path.dirname(HISTORY_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(history, null, 2));
+  } catch (err) {
+    console.warn('Could not save rate history:', err.message);
+  }
+}
+
+/**
+ * Check if a rate is an outlier relative to historical data.
+ * Returns true if the rate should be rejected.
+ */
+function isOutlier(provider, sendCurrency, receiveCurrency, rate) {
+  if (!rate || rate <= 0) return true; // Reject null/negative rates
+
+  const key = getKey(provider, sendCurrency, receiveCurrency);
+  const window = history[key] || [];
+
+  // Not enough history yet — accept and seed
+  if (window.length < MIN_RATES_FOR_VALIDATION) {
+    return false;
   }
 
-  const deviation = Math.abs(rate - median) / median;
+  const median = calculateMedian(window);
+  if (!median || median <= 0) return false;
 
-  if (deviation > tolerance) {
+  // If rate deviates by more than 200% from median, it's an outlier
+  const ratio = rate / median;
+  if (ratio > DEVIATION_THRESHOLD || ratio < 1 / DEVIATION_THRESHOLD) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Record a successfully validated rate into the historical window.
+ */
+function recordRate(provider, sendCurrency, receiveCurrency, rate) {
+  if (!rate || rate <= 0) return;
+
+  const key = getKey(provider, sendCurrency, receiveCurrency);
+  if (!history[key]) history[key] = [];
+
+  history[key].push(rate);
+
+  // Keep only the last WINDOW_SIZE entries
+  if (history[key].length > WINDOW_SIZE) {
+    history[key] = history[key].slice(-WINDOW_SIZE);
+  }
+
+  saveHistory();
+}
+
+/**
+ * Validate a rate and return a result object.
+ */
+function validateRate(provider, sendCurrency, receiveCurrency, rate) {
+  if (!rate || rate <= 0) {
+    return { valid: false, reason: 'Invalid or missing rate', rejected: true };
+  }
+
+  const outlier = isOutlier(provider, sendCurrency, receiveCurrency, rate);
+  if (outlier) {
+    const key = getKey(provider, sendCurrency, receiveCurrency);
+    const window = history[key] || [];
+    const median = calculateMedian(window);
     return {
       valid: false,
-      reason: `Rate ${rate} is ${(deviation * 100).toFixed(0)}% off median ${median} for ${key}`,
+      reason: `Rate ${rate} is > ${DEVIATION_THRESHOLD * 100}% deviation from historical median ${median}`,
+      rejected: true,
       median,
+      historyCount: window.length,
     };
   }
 
-  if (rate > 50000 || rate < 0.001) {
-    return { valid: false, reason: `Rate ${rate} outside sane bounds`, median };
-  }
-
-  return { valid: true, median };
+  return { valid: true, rejected: false };
 }
 
-module.exports = { validateRate, HISTORICAL_MEDIANS };
+module.exports = {
+  isOutlier,
+  recordRate,
+  validateRate,
+  calculateMedian,
+};
