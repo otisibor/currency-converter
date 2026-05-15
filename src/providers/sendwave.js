@@ -27,58 +27,67 @@ module.exports = {
       return { exchangeRate: null, receiveAmount: null, fee: null };
     }
 
-    await page.goto('https://www.sendwave.com/en/', { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.navigation });
-    await page.waitForTimeout(3000);
+    await page.goto('https://www.sendwave.com/en/', {
+      waitUntil: 'networkidle',
+      timeout: TIMEOUTS.navigation,
+    });
 
     await dismissCookieBanner(page);
 
-    // Wait for calculator inputs to render
-    await page.locator('input[type="decimal"]').first().waitFor({ timeout: 5000 });
+    // Wait for calculator to render
+    await page.locator('input[type="decimal"]').first().waitFor({ timeout: 10000 });
 
-    // Select send currency (opens a MUI Drawer with autocomplete)
+    // Select send currency
     await selectCountry(page, sendCountry, 'send');
 
-    // Select receive currency (opens a MUI Drawer with autocomplete)
+    // Select receive currency
     await selectCountry(page, receiveCountry, 'receive');
 
-    // ✅ CRITICAL FIX: Fill amount and WAIT for calculator to update
-    // Sendwave defaults to 100. We need to set to 1000 and wait for React.
+    // ── CRITICAL FIX: Fill amount then wait for React to update BOTH inputs ──
     const sendInput = page.locator('input[type="decimal"]').first();
     await sendInput.click({ clickCount: 3 });
     await sendInput.fill(String(sendAmount));
 
-    // Wait for receive amount to update (not just appear, but update to the new value)
+    // Wait for the receive field to show a positive value AND the send field
+    // to actually display our entered value (not the default 100)
     await page.waitForFunction(
-      (expectedAmt) => {
-        const inputs = Array.from(document.querySelectorAll('input[type="decimal"]'));
+      (expectedSend) => {
+        const inputs = document.querySelectorAll('input[type="decimal"]');
         if (inputs.length < 2) return false;
         const sendVal = parseFloat(inputs[0].value.replace(/,/g, ''));
         const recvVal = parseFloat(inputs[1].value.replace(/,/g, ''));
-        // Must match our send amount AND have a reasonable receive value
-        return Math.abs(sendVal - expectedAmt) < 1 && recvVal > 0;
+        // Ensure send field shows our value AND receive is calculated
+        return Math.abs(sendVal - expectedSend) < 0.1 && recvVal > 0;
       },
       sendAmount,
-      { timeout: 5000 }
+      { timeout: 8000 }
     ).catch(() => {});
 
-    // Read values
-    const inputs = await page.evaluate(() => {
-      return Array.from(document.querySelectorAll('input[type="decimal"]')).map(i => i.value);
-    });
+    // Extra safety wait for React to settle
+    await page.waitForTimeout(1500);
 
-    if (inputs.length >= 2 && inputs[1]) {
-      const sendVal = parseFloat(inputs[0].replace(/,/g, ''));
-      const recvAmt = parseFloat(inputs[1].replace(/,/g, ''));
-      if (recvAmt > 0 && sendVal > 0) {
-        const exchangeRate = recvAmt / sendVal; // Use ACTUAL send value read from DOM, not parameter
-        // Detect the 1/10th bug: if rate is < 10% of a reasonable floor, likely stale
-        if (exchangeRate > 0.01) {
-          return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
-        }
+    // Read values directly from DOM
+    const result = await page.evaluate((expectedSend) => {
+      const inputs = document.querySelectorAll('input[type="decimal"]');
+      if (inputs.length < 2) return null;
+      const sendVal = parseFloat(inputs[0].value.replace(/,/g, ''));
+      const recvVal = parseFloat(inputs[1].value.replace(/,/g, ''));
+      return { sendVal, recvVal, sendDisplay: inputs[0].value, recvDisplay: inputs[1].value };
+    }, sendAmount);
+
+    if (result && result.recvVal > 0 && result.sendVal > 0) {
+      const exchangeRate = result.recvVal / result.sendVal;
+      // Sanity check: reject the 1/10th bug pattern
+      if (exchangeRate > 0.01) {
+        return {
+          exchangeRate,
+          receiveAmount: exchangeRate * sendAmount,
+          fee: null,
+        };
       }
     }
 
-    // Fallback: try to read rate from page text
+    // Fallback: extract rate from page text (e.g. "1 USD = 60.98 PHP")
     const bodyText = await page.evaluate(() => document.body.innerText);
     const rateRegex = new RegExp(`1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i');
     const rateMatch = bodyText.match(rateRegex);
@@ -95,12 +104,13 @@ module.exports = {
 };
 
 async function selectCountry(page, countryName, side) {
-  const selector = side === 'send'
-    ? '[data-testid="exchange-calculator-send-country-select"]'
-    : '[data-testid="exchange-calculator-receive-country-select"]';
+  const selector =
+    side === 'send'
+      ? '[data-testid="exchange-calculator-send-country-select"]'
+      : '[data-testid="exchange-calculator-receive-country-select"]';
 
   await page.click(selector);
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(500);
 
   // Type in the autocomplete search input
   const searchInput = page.locator('input.MuiAutocomplete-input, input[role="combobox"]').last();
@@ -108,19 +118,26 @@ async function selectCountry(page, countryName, side) {
   await searchInput.fill(countryName);
 
   // Wait for MUI to filter the list before clicking
-  await page.waitForFunction(
-    (name) => {
-      const options = document.querySelectorAll('li.MuiAutocomplete-option');
-      return Array.from(options).some(li => li.textContent.includes(name));
-    },
-    countryName,
-    { timeout: 3000 }
-  ).catch(() => {});
+  await page
+    .waitForFunction(
+      (name) => {
+        const options = document.querySelectorAll('li.MuiAutocomplete-option');
+        return Array.from(options).some((li) => li.textContent.includes(name));
+      },
+      countryName,
+      { timeout: 3000 }
+    )
+    .catch(() => {});
 
   // Click the matching option
-  const option = page.locator('li.MuiAutocomplete-option').filter({ hasText: countryName }).first();
+  const option = page
+    .locator('li.MuiAutocomplete-option')
+    .filter({ hasText: countryName })
+    .first();
   await option.click();
-  await page.waitForTimeout(1000);
+
+  // Wait for the calculator to update after country change
+  await page.waitForTimeout(1500);
 }
 
 async function dismissCookieBanner(page) {
@@ -128,7 +145,7 @@ async function dismissCookieBanner(page) {
     const selectors = ['#onetrust-accept-btn-handler', '.osano-cm-accept-all'];
     for (const sel of selectors) {
       const btn = page.locator(sel).first();
-      if (await btn.isVisible({ timeout: 1000 }).catch(() => false)) {
+      if (await btn.isVisible({ timeout: 2000 }).catch(() => false)) {
         await btn.click();
         await page.waitForTimeout(500);
         break;
