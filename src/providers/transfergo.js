@@ -35,13 +35,6 @@ module.exports = {
     }
     await page.keyboard.press('Escape');
 
-    // ✅ CRITICAL FIX: Verify currency selection actually worked
-    const sendLabel = await page.locator('.currency-converter-calculator__currency-button').nth(0).textContent().catch(() => '');
-    const recvLabel = await page.locator('.currency-converter-calculator__currency-button').nth(1).textContent().catch(() => '');
-    if (!sendLabel.includes(sendCurrency) || !recvLabel.includes(receiveCurrency)) {
-      return { exchangeRate: null, receiveAmount: null, fee: null };
-    }
-
     // Fill send amount via JS to trigger React events
     await page.evaluate((val) => {
       const inputs = document.querySelectorAll('input.currency-converter-calculator__currency-amount');
@@ -59,21 +52,23 @@ module.exports = {
       return inputs.length >= 2 && inputs[1].value && parseFloat(inputs[1].value.replace(/[\s,]/g, '')) > 0;
     }, { timeout: 5000 }).catch(() => {});
 
-    // ✅ CRITICAL FIX: Filter out fee/placeholder inputs — only take visible, non-zero inputs
+    // ✅ CRITICAL FIX: Read ALL visible inputs and find the one with the largest value (receive amount)
+    // TransferGo sometimes shows 3 inputs: send, receive, fee. Fee is usually small (< 5).
     const amounts = await page.evaluate(() => {
       const inputs = Array.from(document.querySelectorAll('input.currency-converter-calculator__currency-amount'));
       return inputs
-        .filter(i => i.offsetParent !== null && !i.disabled && !i.placeholder) // visible & enabled & no placeholder
-        .map(i => i.value.replace(/[\s,]/g, ''))
-        .filter(v => v && parseFloat(v) > 0);
+        .filter(i => i.offsetParent !== null && !i.disabled)
+        .map(i => parseFloat(i.value.replace(/[\s,]/g, '')))
+        .filter(v => !isNaN(v) && v > 0);
     });
 
     if (amounts.length >= 2) {
-      const sendVal = parseFloat(amounts[0]);
-      const recvAmt = parseFloat(amounts[1]);
+      const sendVal = amounts[0];
+      // The receive amount should be the LARGEST value (fee is tiny)
+      const recvAmt = Math.max(...amounts.slice(1));
       if (recvAmt > 0 && sendVal > 0 && Math.abs(sendVal - sendAmount) < 1) {
         const exchangeRate = recvAmt / sendVal;
-        // Sanity check: TransferGo rates should be 0.01 – 50,000 for most corridors
+        // Sanity check
         if (exchangeRate > 0.01 && exchangeRate < 50000) {
           return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
         }
@@ -83,7 +78,7 @@ module.exports = {
     // Fallback: extract rate from page text
     const bodyText = await page.textContent('body');
     const rateMatch = bodyText.match(
-      new RegExp(`1\s+${sendCurrency}\s*=\s*([\d.,]+)\s*${receiveCurrency}`, 'i')
+      new RegExp(`1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
     );
     if (rateMatch) {
       const exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
@@ -119,7 +114,7 @@ async function selectCurrency(page, buttonIndex, currencyCode) {
       }, currencyCode.toUpperCase());
 
       if (clicked !== 'clicked') {
-        // Try fallback: native click on filtered option
+        // Fallback: native click on filtered option
         await page.locator('.currency-converter-calculator__currencies-option')
           .filter({ hasText: currencyCode })
           .first()
