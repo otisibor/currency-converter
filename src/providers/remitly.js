@@ -1,5 +1,4 @@
 const { TIMEOUTS, CURRENCY_COUNTRY_MAP } = require('../config');
-const cheerio = require('cheerio');
 
 module.exports = {
   name: 'Remitly',
@@ -19,59 +18,60 @@ module.exports = {
     await page.goto(converterUrl, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.navigation });
     await page.waitForTimeout(1500);
 
-    const html = await page.content();
-    const $ = cheerio.load(html);
+    const bodyText = await page.evaluate(() => document.body.innerText);
 
-    // Check for 404 page early
-    if ($('h1').text().includes('404') || $('title').text().includes('404') || $('title').text().includes('Not Found')) {
+    // Check for 404
+    if (bodyText.includes('404') || bodyText.includes('Not Found') || bodyText.includes('Page not found')) {
       return { exchangeRate: null, receiveAmount: null, fee: null };
     }
 
+    // ── PRIMARY: Look for explicit rate expression ──
+    // This regex was working in the original code — keep it
+    const rateRegex = new RegExp(`1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i');
+    const rateMatch = bodyText.match(rateRegex);
+
     let exchangeRate = null;
 
-    // ── Method 1: Dedicated rate div ──
-    const rateDiv = $('div').filter((_, el) => {
-      const text = $(el).text().trim();
-      return (text.includes('Special rate') || text.includes('Everyday rate')) &&
-             text.includes(sendCurrency) && text.includes(receiveCurrency);
-    }).first().text().trim();
-
-    if (rateDiv) {
-      const rateMatch = rateDiv.match(
-        new RegExp(`1\s+${sendCurrency}\s*=\s*([\d.,]+)\s*${receiveCurrency}`, 'i')
-      );
-      if (rateMatch) {
-        exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
-      }
+    if (rateMatch) {
+      exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
     }
 
-    // ── Method 2: Receive amount section ──
+    // ── SECONDARY: Look for "1,000 EUR = 13,280.90 GHS" pattern ──
+    // If the page shows rate per 1000, normalize it
     if (!exchangeRate) {
-      const receiveSection = $('div').filter((_, el) => {
-        const text = $(el).text().trim();
-        return text.includes('They receive') || text.includes('You receive') || text.includes('Recipient gets');
-      }).first();
-
-      if (receiveSection.length) {
-        const text = receiveSection.text();
-        // Be strict: look for the number immediately before the receive currency
-        const match = text.match(new RegExp(`([\d.,]+)\s*${receiveCurrency}\b`, 'i'));
-        if (match) {
-          const recvAmt = parseFloat(match[1].replace(/,/g, ''));
-          if (recvAmt > 0) {
-            exchangeRate = recvAmt / sendAmount;
-          }
+      const bulkRegex = new RegExp(
+        `${sendAmount.toLocaleString()}\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`,
+        'i'
+      );
+      const bulkMatch = bodyText.match(bulkRegex);
+      if (bulkMatch) {
+        const recvAmt = parseFloat(bulkMatch[1].replace(/,/g, ''));
+        if (recvAmt > 0) {
+          exchangeRate = recvAmt / sendAmount;
         }
       }
     }
 
+    // ── TERTIARY: Look for "100 EUR = 1,328.09 GHS" (per 100) ──
+    if (!exchangeRate) {
+      const per100Regex = new RegExp(
+        `100\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`,
+        'i'
+      );
+      const per100Match = bodyText.match(per100Regex);
+      if (per100Match) {
+        exchangeRate = parseFloat(per100Match[1].replace(/,/g, '')) / 100;
+      }
+    }
+
     // ── SANITY CHECK ──
-    // Remitly rates for 1 unit should almost always be between 0.001 and 50,000
+    // Reject absurd values. Remitly rates for 1 unit should be 0.001 – 50,000.
     if (exchangeRate && exchangeRate > 0.001 && exchangeRate < 50000) {
       return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
     }
 
-    // ❌ REMOVED: Dangerous body-text fallback that caused 10,000× errors
+    // ❌ REMOVED: The dangerous bodyText.match(/(\d[\d.,]*)/) fallback
+    // that caused 130,090 EUR→GHS by matching random numbers on the page.
     return { exchangeRate: null, receiveAmount: null, fee: null };
   },
 };
