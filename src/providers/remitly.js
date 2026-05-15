@@ -15,29 +15,38 @@ module.exports = {
     const to = receiveCurrency.toLowerCase();
     const converterUrl = `https://www.remitly.com/${countryCode}/en/currency-converter/${from}-to-${to}-rate`;
 
-    await page.goto(converterUrl, { waitUntil: 'domcontentloaded', timeout: TIMEOUTS.navigation });
-    await page.waitForTimeout(1500);
+    // Use networkidle so JS-rendered rates are present
+    await page.goto(converterUrl, { waitUntil: 'networkidle', timeout: TIMEOUTS.navigation });
+
+    // Wait for the rate container to appear (the page renders this via JS)
+    await page.waitForFunction(
+      (sc, rc) => {
+        const text = document.body.innerText;
+        return text.includes(`1 ${sc}`) && text.includes(rc);
+      },
+      [sendCurrency, receiveCurrency],
+      { timeout: 10000 }
+    ).catch(() => {});
+
+    await page.waitForTimeout(500);
 
     const bodyText = await page.evaluate(() => document.body.innerText);
 
-    // Check for 404
-    if (bodyText.includes('404') || bodyText.includes('Not Found') || bodyText.includes('Page not found')) {
+    // Check for 404 / unsupported corridor
+    if (/404|Not Found|Page not found|not available|not supported/i.test(bodyText)) {
       return { exchangeRate: null, receiveAmount: null, fee: null };
     }
 
-    // ── PRIMARY: Look for explicit rate expression ──
-    // This regex was working in the original code — keep it
-    const rateRegex = new RegExp(`1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i');
-    const rateMatch = bodyText.match(rateRegex);
-
     let exchangeRate = null;
 
+    // ── PRIMARY: "1 USD = 11.3500 GHS" ──
+    const rateRegex = new RegExp(`1\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i');
+    const rateMatch = bodyText.match(rateRegex);
     if (rateMatch) {
       exchangeRate = parseFloat(rateMatch[1].replace(/,/g, ''));
     }
 
-    // ── SECONDARY: Look for "1,000 EUR = 13,280.90 GHS" pattern ──
-    // If the page shows rate per 1000, normalize it
+    // ── SECONDARY: "1,000 USD = 11,350.00 GHS" ──
     if (!exchangeRate) {
       const bulkRegex = new RegExp(
         `${sendAmount.toLocaleString()}\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`,
@@ -52,7 +61,7 @@ module.exports = {
       }
     }
 
-    // ── TERTIARY: Look for "100 EUR = 1,328.09 GHS" (per 100) ──
+    // ── TERTIARY: "100 USD = 1,135.00 GHS" ──
     if (!exchangeRate) {
       const per100Regex = new RegExp(
         `100\\s+${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`,
@@ -64,14 +73,29 @@ module.exports = {
       }
     }
 
+    // ── QUATERNARY: DOM extraction from the rate element ──
+    if (!exchangeRate) {
+      const domRate = await page.evaluate((sc, rc) => {
+        // Look for elements that contain the pattern directly
+        const els = document.querySelectorAll('*');
+        for (const el of els) {
+          if (el.children.length === 0) { // leaf text nodes only
+            const text = el.textContent;
+            const m = text.match(new RegExp(`1\\s*${sc}\\s*=\\s*([\\d.,]+)\\s*${rc}`, 'i'));
+            if (m) return parseFloat(m[1].replace(/,/g, ''));
+          }
+        }
+        return null;
+      }, sendCurrency, receiveCurrency);
+      if (domRate) exchangeRate = domRate;
+    }
+
     // ── SANITY CHECK ──
-    // Reject absurd values. Remitly rates for 1 unit should be 0.001 – 50,000.
+    // Rates for 1 unit should be reasonable (0.001 – 50,000)
     if (exchangeRate && exchangeRate > 0.001 && exchangeRate < 50000) {
       return { exchangeRate, receiveAmount: exchangeRate * sendAmount, fee: null };
     }
 
-    // ❌ REMOVED: The dangerous bodyText.match(/(\d[\d.,]*)/) fallback
-    // that caused 130,090 EUR→GHS by matching random numbers on the page.
     return { exchangeRate: null, receiveAmount: null, fee: null };
   },
 };
