@@ -20,6 +20,8 @@ const RECEIVE_COUNTRY_MAP = {
 module.exports = {
   name: 'Sendwave',
 
+  reset() {},
+
   async fetchRate(page, sendCurrency, receiveCurrency, sendAmount) {
     const sendCountry = SEND_COUNTRY_MAP[sendCurrency];
     const receiveCountry = RECEIVE_COUNTRY_MAP[receiveCurrency];
