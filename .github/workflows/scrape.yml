@@ -9,7 +9,7 @@ jobs:
   scrape:
     runs-on: ubuntu-latest
 
-
+    timeout-minutes: 120
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
