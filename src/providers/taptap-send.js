@@ -3,8 +3,14 @@ const { TIMEOUTS } = require('../config');
 let currentPage = null;
 let currentOriginCurrency = null;
 
+function reset() {
+  currentPage = null;
+  currentOriginCurrency = null;
+}
+
 module.exports = {
   name: 'Taptap Send',
+  reset,
 
   async fetchRate(page, sendCurrency, receiveCurrency, sendAmount) {
     if (currentPage !== page) {
