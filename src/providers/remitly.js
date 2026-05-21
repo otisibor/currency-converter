@@ -3,6 +3,8 @@ const { TIMEOUTS, CURRENCY_COUNTRY_MAP } = require('../config');
 module.exports = {
   name: 'Remitly',
 
+  reset() {},
+
   async fetchRate(page, sendCurrency, receiveCurrency, sendAmount) {
     const fromCountry = CURRENCY_COUNTRY_MAP[sendCurrency];
     const toCountry = CURRENCY_COUNTRY_MAP[receiveCurrency];
