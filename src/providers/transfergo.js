@@ -3,8 +3,14 @@ const { TIMEOUTS } = require('../config');
 let currentPage = null;
 let currentSendCurrency = null;
 
+function reset() {
+  currentPage = null;
+  currentSendCurrency = null;
+}
+
 module.exports = {
   name: 'TransferGo',
+  reset,
 
   async fetchRate(page, sendCurrency, receiveCurrency, sendAmount) {
     if (currentPage !== page) {
