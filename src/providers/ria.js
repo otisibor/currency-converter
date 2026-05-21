@@ -3,6 +3,8 @@ const { TIMEOUTS } = require('../config');
 module.exports = {
   name: 'Ria',
 
+  reset() {},
+
   async fetchRate(page, sendCurrency, receiveCurrency, sendAmount) {
     // Ria supports URL parameters directly - much more reliable than dropdown interaction
     const url = `https://www.riamoneytransfer.com/en-us/rates-conversion/?From=${sendCurrency}&To=${receiveCurrency}&Amount=${sendAmount}`;
@@ -32,7 +34,7 @@ module.exports = {
     // ── PRIMARY: Extract from "1.00000 USD = 11.32661 GHS" pattern ──
     // This is the main rate display on the page
     const rateMatch = bodyText.match(
-      new RegExp(`[\d.]+\\s*${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
+      new RegExp(`[\\d.]+\\s*${sendCurrency}\\s*=\\s*([\\d.,]+)\\s*${receiveCurrency}`, 'i')
     );
 
     if (rateMatch) {
