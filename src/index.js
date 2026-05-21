@@ -1,8 +1,10 @@
-const fs = require('fs');
-const path = require('path');
 const { loadProviderPairs } = require('./csv-parser');
 const { scrape } = require('./scraper');
 const { writeResults, writeJsonFromNdjson, appendResults } = require('./output');
+const { generateValidationReport } = require('./validator');
+const { buildRetryPairs, updateResults } = require('./retry');
+const fs = require('fs');
+const path = require('path');
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -13,6 +15,8 @@ function parseArgs() {
     providers: [],
     pair: null,
     headless: true,
+    strict: false,
+    retry: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -25,6 +29,8 @@ function parseArgs() {
     else if (arg === '--providers' && i + 1 < args.length) options.providers.push(...args[++i].split(','));
     else if (arg.startsWith('--pair=')) options.pair = arg.split('=').slice(1).join('=');
     else if (arg === '--headful') options.headless = false;
+    else if (arg === '--strict') options.strict = true;
+    else if (arg === '--retry') options.retry = true;
   }
 
   return options;
@@ -94,36 +100,66 @@ async function main() {
   const allPairs = loadProviderPairs(csvPath);
 
   const providerPairs = filterProviderPairs(allPairs, options);
+
+  // ── Retry mode: find failed pairs from existing output ──
+  let retryMode = false;
+  let failedCounts = {};
+  if (options.retry) {
+    retryMode = true;
+    const outputRoot = path.join(process.cwd(), 'output');
+    const retry = buildRetryPairs(providerPairs, outputRoot);
+    failedCounts = retry.failedCounts;
+
+    if (Object.keys(retry.retryPairs).length === 0) {
+      console.log('No failed pairs found to retry. All outputs look clean.');
+      return;
+    }
+
+    const totalFailed = Object.values(failedCounts).reduce((sum, n) => sum + n, 0);
+    console.log(`Retry mode: ${Object.keys(retry.retryPairs).length} provider(s), ${totalFailed} failed pair(s) to re-fetch`);
+    for (const [provider, count] of Object.entries(failedCounts)) {
+      console.log(`  ${provider}: ${count} pair(s)`);
+    }
+
+    // Replace providerPairs with only the failed ones
+    for (const key of Object.keys(providerPairs)) delete providerPairs[key];
+    for (const [k, v] of Object.entries(retry.retryPairs)) {
+      providerPairs[k] = v;
+    }
+  }
+
   const pairCount = Object.values(providerPairs).reduce((sum, p) => sum + p.pairs.length, 0);
   console.log(`Running ${Object.keys(providerPairs).length} provider(s), ${pairCount} total pairs`);
 
-  // Clean old output files before starting
-  const outputDirs = [];
-  if (isMultiRootRun(options)) {
-    outputDirs.push(path.join(process.cwd(), 'output'));
-  } else if (isSingleRun(options)) {
-    const slug = getProviderSlug(Object.keys(providerPairs)[0]);
-    outputDirs.push(path.join(process.cwd(), 'output', slug));
-  } else {
-    for (const providerName of Object.keys(providerPairs)) {
-      const slug = getProviderSlug(providerName);
+  // Clean old output files before starting (skip in retry mode — we update in place)
+  if (!retryMode) {
+    const outputDirs = [];
+    if (isMultiRootRun(options)) {
+      outputDirs.push(path.join(process.cwd(), 'output'));
+    } else if (isSingleRun(options)) {
+      const slug = getProviderSlug(Object.keys(providerPairs)[0]);
       outputDirs.push(path.join(process.cwd(), 'output', slug));
+    } else {
+      for (const providerName of Object.keys(providerPairs)) {
+        const slug = getProviderSlug(providerName);
+        outputDirs.push(path.join(process.cwd(), 'output', slug));
+      }
     }
-  }
-  for (const dir of outputDirs) {
-    if (!fs.existsSync(dir)) continue;
-    for (const ext of ['rates.ndjson', 'rates.csv']) {
-      const fp = path.join(dir, ext);
-      if (fs.existsSync(fp)) {
+    for (const dir of outputDirs) {
+      if (!fs.existsSync(dir)) continue;
+      for (const ext of ['rates.ndjson', 'rates.csv']) {
+        const fp = path.join(dir, ext);
+        if (fs.existsSync(fp)) {
+          fs.unlinkSync(fp);
+          console.log(`Cleaned ${fp}`);
+        }
+      }
+      // Also clean old provider log files
+      for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.log'))) {
+        const fp = path.join(dir, file);
         fs.unlinkSync(fp);
         console.log(`Cleaned ${fp}`);
       }
-    }
-    // Also clean old provider log files
-    for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.log'))) {
-      const fp = path.join(dir, file);
-      fs.unlinkSync(fp);
-      console.log(`Cleaned ${fp}`);
     }
   }
 
@@ -137,14 +173,27 @@ async function main() {
     headless: options.headless,
     providerFilter: null,
     pairFilter: options.pair,
+    strict: options.strict,
     onBatch: (currentResults) => {
-      // currentResults is the full accumulated list from scraper; only append new ones
       const newCount = currentResults.length - totalCount;
       if (newCount <= 0) return;
       const newResults = currentResults.slice(totalCount);
       totalCount = currentResults.length;
 
-      if (isMultiRootRun(options)) {
+      if (retryMode) {
+        // Retry mode: update failed entries in place per provider
+        const grouped = {};
+        for (const r of newResults) {
+          if (!grouped[r.provider]) grouped[r.provider] = [];
+          grouped[r.provider].push(r);
+        }
+        for (const [providerName, providerResults] of Object.entries(grouped)) {
+          const slug = getProviderSlug(providerName);
+          updateResults(providerResults, path.join('output', slug));
+        }
+        const paths = Object.keys(grouped).map(p => `output/${getProviderSlug(p)}/`).join(', ');
+        console.log(`[retry] +${newResults.length} results updated → ${paths}`);
+      } else if (isMultiRootRun(options)) {
         appendResults(newResults, null);
         console.log(`[batch] +${newResults.length} results (total ${totalCount}) → output/rates.ndjson, output/rates.csv`);
       } else if (isSingleRun(options)) {
@@ -153,7 +202,6 @@ async function main() {
         appendResults(newResults, path.join('output', slug));
         console.log(`[batch] ${providerName}: +${newResults.length} (total ${totalCount}) → output/${slug}/rates.ndjson, output/${slug}/rates.csv`);
       } else {
-        // Multiple providers: append each provider's new results to its own dir
         const grouped = {};
         for (const r of newResults) {
           if (!grouped[r.provider]) grouped[r.provider] = [];
@@ -177,8 +225,13 @@ async function main() {
   console.log(`Total: ${results.length} | Success: ${successful} | Failed: ${failed}`);
 
   if (results.length > 0) {
-    // Determine output path based on run type
-    if (isMultiRootRun(options)) {
+    if (retryMode) {
+      // Retry mode: results already merged into existing files via updateResults
+      console.log(`\nRetry: updated ${successful} pair(s) in existing output files`);
+      if (failed > 0) {
+        console.log(`  ${failed} pair(s) still could not be fetched`);
+      }
+    } else if (isMultiRootRun(options)) {
       writeJsonFromNdjson(null);
       console.log(`\nOutput:`);
       console.log(`  output/rates.ndjson  (incremental results)`);
@@ -197,7 +250,6 @@ async function main() {
       console.log(`  output/${slug}/${slug}.log     (provider diagnostics)`);
       console.log(`  output/errors/               (failure screenshots)`);
     } else {
-      // Multiple but not all: split by provider
       const grouped = {};
       for (const r of results) {
         if (!grouped[r.provider]) grouped[r.provider] = [];
@@ -215,6 +267,12 @@ async function main() {
       console.log(`  output/errors/  (failure screenshots)`);
     }
   }
+
+  const report = generateValidationReport(results);
+  const reportPath = path.join(process.cwd(), 'output', 'validation-report.json');
+  fs.writeFileSync(reportPath, JSON.stringify(report, null, 2), 'utf-8');
+  console.log(`\nValidation: ${report.validRates} valid, ${report.suspectRates} suspect, ${report.invalidRates} invalid, ${report.nullRates} null`);
+  console.log(`Report: output/validation-report.json`);
 }
 
 main().catch(err => {
