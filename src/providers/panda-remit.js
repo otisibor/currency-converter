@@ -83,6 +83,8 @@ const COUNTRY_MAP = {
 module.exports = {
   name: 'Panda Remit',
 
+  reset() {},
+
   async fetchRate(page, sendCurrency, receiveCurrency, sendAmount) {
     const pair = COUNTRY_MAP[sendCurrency];
     if (!pair || !pair.dest[receiveCurrency]) {
