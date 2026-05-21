@@ -6,6 +6,11 @@ function createMoneyGramScraper() {
 
   return {
     name: 'MoneyGram',
+    maxAttempts: 3,
+
+    reset() {
+      isRestricted = false;
+    },
 
     async fetchRate(page, sendCurrency, receiveCurrency, sendAmount) {
       if (isRestricted) {
