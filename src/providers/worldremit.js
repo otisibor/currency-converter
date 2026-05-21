@@ -3,8 +3,13 @@ const cheerio = require('cheerio');
 
 let currentSendCurrency = null;
 
+function reset() {
+  currentSendCurrency = null;
+}
+
 module.exports = {
   name: 'WorldRemit',
+  reset,
 
   async fetchRate(page, sendCurrency, receiveCurrency, sendAmount) {
     if (!page.url().includes('currency-converter')) {
