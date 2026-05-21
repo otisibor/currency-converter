@@ -3,9 +3,10 @@ const { chromium } = require('playwright');
 const { getProvider } = require('./providers');
 const { BROWSER_OPTIONS, CONTEXT_OPTIONS, TIMEOUTS, SEND_AMOUNT } = require('./config');
 const { saveErrorScreenshot, appendLog } = require('./output');
+const { validateRate, attachValidation } = require('./validator');
 
 async function scrape(providerPairs, options = {}) {
-  const { headless = true, providerFilter = null, pairFilter = null, onBatch = null } = options;
+  const { headless = true, providerFilter = null, pairFilter = null, onBatch = null, strict = false } = options;
 
   const browserOptions = { ...BROWSER_OPTIONS, headless };
   const browser = await chromium.launch(browserOptions);
@@ -116,7 +117,7 @@ async function scrape(providerPairs, options = {}) {
           };
 
           let attempt = 0;
-          const maxAttempts = 2;
+          const maxAttempts = typeof provider.maxAttempts === 'number' ? provider.maxAttempts : 2;
 
           while (attempt < maxAttempts) {
             attempt++;
@@ -127,9 +128,32 @@ async function scrape(providerPairs, options = {}) {
                 result.exchangeRate = rate.exchangeRate;
                 result.receiveAmount = rate.receiveAmount;
                 result.fee = rate.fee;
-                result.success = true;
-                console.log(`[${name}] ${pairNum}/${pairs.length} ${label}: rate=${rate.exchangeRate}`);
-                break;
+
+                const validation = validateRate(result, { strict });
+                attachValidation(result, validation);
+
+                if (validation.status === 'valid') {
+                  result.success = true;
+                  console.log(`[${name}] ${pairNum}/${pairs.length} ${label}: rate=${rate.exchangeRate} [valid]`);
+                  break;
+                } else if (validation.status === 'suspect' && attempt < maxAttempts) {
+                  console.log(`[${name}] ${pairNum}/${pairs.length} ${label}: rate=${rate.exchangeRate} [suspect, retrying]`);
+                  attachValidation(result, { ...validation, retryAttempted: true });
+                  if (typeof provider.reset === 'function') provider.reset();
+                  await page.waitForTimeout(1000);
+                } else {
+                  result.success = validation.status !== 'invalid';
+                  if (!result.success) {
+                    result.exchangeRate = null;
+                    result.receiveAmount = null;
+                    result.error = `rate rejected: ${validation.reason}`;
+                    console.log(`[${name}] ${pairNum}/${pairs.length} ${label}: rate=${rate.exchangeRate} [invalid: ${validation.reason}]`);
+                  } else {
+                    console.log(`[${name}] ${pairNum}/${pairs.length} ${label}: rate=${rate.exchangeRate} [suspect]`);
+                  }
+                  attachValidation(result, { ...validation, retryAttempted: true, retrySucceeded: false });
+                  break;
+                }
               } else {
                 if (attempt === maxAttempts) {
                   result.error = 'unable to acquire';
@@ -140,7 +164,8 @@ async function scrape(providerPairs, options = {}) {
               }
             } catch (err) {
               if (attempt < maxAttempts) {
-                await page.waitForTimeout(5000);
+                const backoff = name === 'MoneyGram' ? 10000 : 5000;
+                await page.waitForTimeout(backoff);
               } else {
                 result.error = 'unable to acquire';
                 const detail = `${label}: ${err.message}`;
