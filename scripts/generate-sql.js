@@ -26,15 +26,15 @@ if (fs.existsSync(jsonPath)) {
     const data = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
     if (Array.isArray(data) && data.length > 0) {
       rates = data;
-      console.log(`📁 Read ${rates.length} records from rates.json (array)`);
+      console.log(`Read ${rates.length} records from rates.json (array)`);
     } else if (data && Array.isArray(data.results)) {
       rates = data.results;
-      console.log(`📁 Read ${rates.length} records from rates.json (object.results)`);
+      console.log(`Read ${rates.length} records from rates.json (object.results)`);
     } else {
-      console.log(`⚠️ rates.json exists but has no usable data`);
+      console.log(`rates.json exists but has no usable data`);
     }
   } catch (err) {
-    console.error(`⚠️ Failed to parse rates.json: ${err.message}`);
+    console.error(`Failed to parse rates.json: ${err.message}`);
   }
 }
 
@@ -45,15 +45,15 @@ if (rates.length === 0 && fs.existsSync(ndjsonPath)) {
     if (content) {
       const lines = content.split('\n').filter(line => line.trim());
       rates = lines.map(line => JSON.parse(line));
-      console.log(`📁 Read ${rates.length} records from rates.ndjson (fallback)`);
+      console.log(`Read ${rates.length} records from rates.ndjson (fallback)`);
     }
   } catch (err) {
-    console.error(`⚠️ Failed to parse rates.ndjson: ${err.message}`);
+    console.error(`Failed to parse rates.ndjson: ${err.message}`);
   }
 }
 
 if (rates.length === 0) {
-  console.error('❌ No rates to insert.');
+  console.error('No rates to insert.');
   process.exit(1);
 }
 
@@ -64,17 +64,21 @@ const values = rates.map(r => {
   const rate = r.exchangeRate != null ? r.exchangeRate : 'NULL';
   const recv = r.receiveAmount != null ? r.receiveAmount : 'NULL';
   const error = r.error ? escape(r.error) : 'NULL';
-  
-  return `(${escape(r.provider)}, ${escape(r.sendCurrency)}, ${escape(r.receiveCurrency)}, ${r.sendAmount}, ${rate}, ${recv}, ${fee}, ${escape(r.timestamp)}, ${r.success ? 1 : 0}, ${error})`;
+  const vStatus = r.validation?.status ? escape(r.validation.status) : 'NULL';
+  const vDeviation = r.validation?.deviationFromMid != null ? r.validation.deviationFromMid : 'NULL';
+  const vBoundsMin = r.validation?.boundsMin != null ? r.validation.boundsMin : 'NULL';
+  const vBoundsMax = r.validation?.boundsMax != null ? r.validation.boundsMax : 'NULL';
+
+  return `(${escape(r.provider)}, ${escape(r.sendCurrency)}, ${escape(r.receiveCurrency)}, ${r.sendAmount}, ${rate}, ${recv}, ${fee}, ${escape(r.timestamp)}, ${r.success ? 1 : 0}, ${error}, ${vStatus}, ${vDeviation}, ${vBoundsMin}, ${vBoundsMax})`;
 });
 
-const sql = `INSERT INTO exchange_rates 
-  (provider, send_currency, receive_currency, send_amount, exchange_rate, receive_amount, fee, timestamp, success, error) 
-VALUES 
+const sql = `INSERT INTO exchange_rates
+  (provider, send_currency, receive_currency, send_amount, exchange_rate, receive_amount, fee, timestamp, success, error, validation_status, deviation_from_mid, bounds_min, bounds_max)
+VALUES
   ${values.join(',\n  ')};
 `;
 
 const outPath = path.join(process.cwd(), 'output', 'insert-rates.sql');
 fs.writeFileSync(outPath, sql);
 
-console.log(`✅ Generated SQL with ${rates.length} records → ${outPath}`);
+console.log(`Generated SQL with ${rates.length} records -> ${outPath}`);
